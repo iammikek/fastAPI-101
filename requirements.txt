@@ -1,0 +1,6 @@
+# FastAPI and ASGI server
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Optional: automatic API docs (included with FastAPI)
+# Pydantic is a dependency of FastAPI
