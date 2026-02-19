@@ -2,8 +2,15 @@
 FastAPI learning project - minimal app to get started.
 Run with: uvicorn main:app --reload
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import Base, engine, get_db
+from models import Item
+
+# Create tables on startup (SQLite file is created here if missing)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="First FastAPI",
@@ -11,15 +18,17 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# In-memory store for items (resets when the app restarts)
-items_db: list[dict] = []
-
 
 class ItemCreate(BaseModel):
     """Schema for creating an item (request body)."""
     name: str
     description: str | None = None
     price: float
+
+
+def item_to_dict(row: Item) -> dict:
+    """Convert Item ORM row to JSON-serializable dict."""
+    return {"id": row.id, "name": row.name, "description": row.description, "price": row.price}
 
 
 @app.get("/")
@@ -35,27 +44,26 @@ def health():
 
 
 @app.get("/items", response_model=list[dict])
-def list_items(skip: int = 0, limit: int = 10):
+def list_items(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     """List items with optional pagination (query params: skip, limit)."""
-    return items_db[skip : skip + limit]
+    rows = db.query(Item).offset(skip).limit(limit).all()
+    return [item_to_dict(r) for r in rows]
 
 
 @app.get("/items/{item_id}", response_model=dict)
-def get_item(item_id: int):
+def get_item(item_id: int, db: Session = Depends(get_db)):
     """Get a single item by id (path parameter)."""
-    if item_id < 0 or item_id >= len(items_db):
+    row = db.get(Item, item_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    return items_db[item_id]
+    return item_to_dict(row)
 
 
 @app.post("/items", response_model=dict, status_code=201)
-def create_item(item: ItemCreate):
+def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     """Create a new item (request body validated by Pydantic)."""
-    new_item = {
-        "id": len(items_db),
-        "name": item.name,
-        "description": item.description,
-        "price": item.price,
-    }
-    items_db.append(new_item)
-    return new_item
+    row = Item(name=item.name, description=item.description, price=item.price)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return item_to_dict(row)

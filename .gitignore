@@ -8,5 +8,10 @@ __pycache__/
 venv/
 .env
 
+# Database
+*.db
+app.db
+test.db
+
 # Docker
 .docker/

@@ -6,12 +6,13 @@ A step-by-step guide to the project we set up: a minimal FastAPI app running in 
 
 ## What We Built
 
-1. **A minimal FastAPI application** (`main.py`) with root and health endpoints, plus an in-memory items API (added in Step 8)
+1. **A minimal FastAPI application** (`main.py`) with root, health, and items API
 2. **Dependency list** (`requirements.txt`) for Python packages
 3. **A Docker image** (`Dockerfile`) that runs the app in a container
 4. **Docker Compose** (`docker-compose.yml`) for one-command run with hot reload
 5. **A `.dockerignore`** so unnecessary files stay out of the image
-6. **A test framework** (pytest + FastAPI TestClient) for API tests (added in Step 9)
+6. **A persistent database** (SQLite + SQLAlchemy) for items (Step 10)
+7. **A test framework** (pytest + FastAPI TestClient) for API tests (Step 11)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -23,13 +24,16 @@ By the end, you can start the API with a single command and edit code while it r
 first-fastapi/
 ├── main.py              # FastAPI application
 ├── requirements.txt     # Python dependencies
+├── database.py           # SQLAlchemy engine, session, get_db (Step 10)
+├── models.py            # ORM models, e.g. Item (Step 10)
 ├── Dockerfile           # How to build the container image
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
+├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
 ├── TUTORIAL.md          # This file
-└── tests/               # Test package (Step 9)
+└── tests/               # Test package (Step 11)
     ├── __init__.py
-    ├── conftest.py      # Pytest fixtures (e.g. reset items_db)
+    ├── conftest.py      # Pytest fixtures (e.g. reset_db)
     └── test_main.py     # API tests with TestClient
 ```
 
@@ -56,6 +60,9 @@ first-fastapi/
 # FastAPI and ASGI server
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
+
+# Database (Step 10)
+sqlalchemy==2.0.36
 
 # Testing (TestClient uses httpx)
 pytest==8.3.4
@@ -435,23 +442,208 @@ def create_item(item: ItemCreate):
 
 ---
 
-## 9. Add a test framework
+## 10. Add a persistent database
+
+This step replaces the in-memory list with **SQLite** and **SQLAlchemy** so items survive restarts. You get a real table, sessions, and a `get_db` dependency.
+
+### 10.1 What you’ll use
+
+| Piece | Purpose |
+|-------|--------|
+| **SQLite** | Single-file database; no separate server. Good for learning and small apps. |
+| **SQLAlchemy** | ORM: define tables as Python classes, run queries with sessions. |
+| **database.py** | Engine, `SessionLocal`, `Base`, and a `get_db()` dependency that yields a session per request. |
+| **models.py** | ORM model(s), e.g. `Item`, mapped to the `items` table. |
+| **Depends(get_db)** | FastAPI injects a DB session into each route that declares it. |
+
+### 10.2 Add SQLAlchemy to dependencies
+
+In `requirements.txt` add:
+
+```txt
+# Database
+sqlalchemy==2.0.36
+```
+
+### 10.3 Create the database module
+
+**Copy-paste: `database.py`**
+
+```python
+"""
+Database connection and session management.
+Uses SQLite by default; set DATABASE_URL for a different backend.
+"""
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+# SQLite needs check_same_thread=False for FastAPI's async usage
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def get_db():
+    """Dependency that yields a DB session; close after request."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+```
+
+- **DATABASE_URL** – Default `sqlite:///./app.db` (file `app.db` in the current directory). Override with the env var for tests or production.
+- **get_db** – Generator: yield one session per request; FastAPI calls it when a route uses `Depends(get_db)`.
+
+### 10.4 Create the Item model
+
+**Copy-paste: `models.py`**
+
+```python
+"""
+SQLAlchemy ORM models.
+"""
+from sqlalchemy import Column, Integer, String, Float, Text
+from database import Base
+
+
+class Item(Base):
+    """Item table: id, name, description, price."""
+
+    __tablename__ = "items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    price = Column(Float, nullable=False)
+```
+
+### 10.5 Wire the app to the database
+
+In `main.py`:
+
+1. Create tables on startup: `Base.metadata.create_all(bind=engine)` (so `app.db` and the `items` table exist).
+2. Use `Depends(get_db)` in routes that need a session.
+3. Replace the in-memory list with `db.query(Item)` / `db.add` / `db.commit` / `db.refresh`.
+4. Convert ORM rows to dicts for JSON (e.g. a small `item_to_dict(row)` helper).
+
+**Copy-paste: full `main.py` (with persistent DB)**
+
+```python
+"""
+FastAPI learning project - minimal app to get started.
+Run with: uvicorn main:app --reload
+"""
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import Base, engine, get_db
+from models import Item
+
+# Create tables on startup (SQLite file is created here if missing)
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="First FastAPI",
+    description="A simple API to learn FastAPI basics",
+    version="0.1.0",
+)
+
+
+class ItemCreate(BaseModel):
+    """Schema for creating an item (request body)."""
+    name: str
+    description: str | None = None
+    price: float
+
+
+def item_to_dict(row: Item) -> dict:
+    """Convert Item ORM row to JSON-serializable dict."""
+    return {"id": row.id, "name": row.name, "description": row.description, "price": row.price}
+
+
+@app.get("/")
+def root():
+    """Root endpoint - says hello."""
+    return {"message": "Hello from FastAPI!"}
+
+
+@app.get("/health")
+def health():
+    """Health check for Docker/load balancers."""
+    return {"status": "ok"}
+
+
+@app.get("/items", response_model=list[dict])
+def list_items(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    """List items with optional pagination (query params: skip, limit)."""
+    rows = db.query(Item).offset(skip).limit(limit).all()
+    return [item_to_dict(r) for r in rows]
+
+
+@app.get("/items/{item_id}", response_model=dict)
+def get_item(item_id: int, db: Session = Depends(get_db)):
+    """Get a single item by id (path parameter)."""
+    row = db.get(Item, item_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item_to_dict(row)
+
+
+@app.post("/items", response_model=dict, status_code=201)
+def create_item(item: ItemCreate, db: Session = Depends(get_db)):
+    """Create a new item (request body validated by Pydantic)."""
+    row = Item(name=item.name, description=item.description, price=item.price)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return item_to_dict(row)
+```
+
+### 10.6 Run and try it
+
+1. Start the app: `docker compose up --build` or `uvicorn main:app --reload`.
+2. Create an item via **POST /items** (e.g. in `/docs`).
+3. Restart the app; call **GET /items** again — the item is still there (stored in `app.db`).
+
+Add `app.db` (and `*.db` if you like) to `.gitignore` so the DB file is not committed.
+
+### 10.7 Tests with a separate DB
+
+Tests should not use `app.db`. Set **DATABASE_URL** before the app (and `database`) is loaded so the app uses a test database:
+
+- **Root `conftest.py`** (project root): set `os.environ["DATABASE_URL"] = "sqlite:///./test.db"` at the top. Pytest loads this before test modules, so `database.py` and `main` see the test URL when they are first imported.
+- **tests/conftest.py**: add an autouse fixture that deletes all rows from `items` after each test (`reset_db`), so each test starts with an empty table.
+
+That way the app under test uses `test.db`, and tests stay isolated. See the repo’s `conftest.py` and `tests/conftest.py` for the exact snippets.
+
+---
+
+## 11. Add a test framework
 
 This step adds **pytest** and FastAPI’s **TestClient** so you can test your API without starting a server. Tests run in process and hit your routes like real HTTP requests.
 
-### 9.1 What you’ll use
+### 11.1 What you’ll use
 
 | Tool | Purpose |
 |------|--------|
 | **pytest** | Discovers and runs test functions; rich assertions and fixtures. |
 | **TestClient** (from `fastapi.testclient`) | Calls your FastAPI app in process; same interface as `requests` (`.get()`, `.post()`, `.json()`, etc.). Requires **httpx** to be installed. |
-| **conftest.py** | Pytest loads this automatically; we use it to reset `items_db` before each test so tests stay independent. |
+| **conftest.py** | Pytest loads this automatically; we use it to set a test DB and reset data so tests stay independent. |
 
-### 9.2 Add pytest to dependencies
+### 11.2 Add pytest to dependencies
 
 Add pytest and httpx to `requirements.txt` (TestClient depends on httpx under the hood):
 
 ```txt
+# Database (Step 10)
+sqlalchemy==2.0.36
+
 # Testing (TestClient uses httpx)
 pytest==8.3.4
 httpx==0.28.1
@@ -459,9 +651,9 @@ httpx==0.28.1
 
 Reinstall if needed: `pip install -r requirements.txt` (or rebuild the Docker image if you run tests inside the container).
 
-### 9.3 Create the test package and fixture
+### 11.3 Create the test package and fixture
 
-Create a `tests` directory and an empty package so Python (and pytest) treat it as a package. Then add a fixture that clears the in-memory items list before (and after) each test so one test doesn’t affect another.
+Create a `tests` directory and an empty package so Python (and pytest) treat it as a package. Use a root `conftest.py` to set `DATABASE_URL` to a test DB (e.g. `test.db`) before the app loads. In `tests/conftest.py`, add a fixture that clears the `items` table after each test so tests stay independent.
 
 **Copy-paste: `tests/__init__.py`**
 
@@ -469,29 +661,9 @@ Create a `tests` directory and an empty package so Python (and pytest) treat it 
 # Tests package
 ```
 
-**Copy-paste: `tests/conftest.py`**
+See **Step 10.7** for how the test DB and reset fixture are set up. The repo’s root `conftest.py` sets `DATABASE_URL`; `tests/conftest.py` defines a `reset_db` fixture that clears the `items` table after each test.
 
-```python
-"""
-Pytest fixtures shared across tests.
-"""
-import pytest
-
-from main import items_db
-
-
-@pytest.fixture(autouse=True)
-def reset_items_db():
-    """Clear the in-memory items list before each test so tests don't affect each other."""
-    items_db.clear()
-    yield
-    items_db.clear()
-```
-
-- **`autouse=True`** – The fixture runs for every test in this package without having to name it.
-- **`yield`** – Pytest runs the test between the code before and after `yield`; we clear again after the test for cleanliness.
-
-### 9.4 Write API tests with TestClient
+### 11.4 Write API tests with TestClient
 
 Create `tests/test_main.py`. Import your app, create a `TestClient(app)`, and call `.get()`, `.post()`, etc. Assert on `response.status_code` and `response.json()`.
 
@@ -551,7 +723,7 @@ def test_create_item():
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["id"] == 0
+    assert data["id"] >= 1  # DB autoincrement
     assert data["name"] == "Widget"
     assert data["description"] == "A nice widget"
     assert data["price"] == 9.99
@@ -566,8 +738,9 @@ def test_create_item_optional_description():
 
 def test_get_item():
     """GET /items/{item_id} returns the item when it exists."""
-    client.post("/items", json={"name": "Widget", "description": None, "price": 9.99})
-    response = client.get("/items/0")
+    create = client.post("/items", json={"name": "Widget", "description": None, "price": 9.99})
+    item_id = create.json()["id"]
+    response = client.get(f"/items/{item_id}")
     assert response.status_code == 200
     assert response.json()["name"] == "Widget"
 
@@ -585,7 +758,7 @@ def test_create_item_invalid_body():
     assert response.status_code == 422
 ```
 
-### 9.5 Run the tests
+### 11.5 Run the tests
 
 From the **project root** (so that `main` is importable):
 
@@ -604,7 +777,7 @@ docker compose run --rm api pytest tests/ -v
 
 **Note:** The app uses Python 3.12 (e.g. `str | None`). Run tests with Python 3.10+ locally, or use the Docker command above.
 
-### 9.6 What to try next
+### 11.6 What to try next
 
 - Add a test for **PUT** or **DELETE** when you add those endpoints.
 - Use **`response.raise_for_status()`** if you expect success and want a clear error when the status is 4xx/5xx.
@@ -612,7 +785,7 @@ docker compose run --rm api pytest tests/ -v
 
 ---
 
-## 10. Next Steps for Learning FastAPI
+## 12. Next Steps for Learning FastAPI
 
 Now that you have path params, query params, request bodies, and tests in place, you can extend the app further:
 
@@ -625,7 +798,7 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## 11. Quick Reference
+## 13. Quick Reference
 
 | Goal | Command |
 |------|--------|

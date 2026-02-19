@@ -32,9 +32,8 @@ def test_list_items_empty():
 
 def test_list_items_with_pagination():
     """GET /items?skip=0&limit=2 returns only the requested slice."""
-    client.post("/items", json={"name": "A", "description": None, "price": 1.0})
-    client.post("/items", json={"name": "B", "description": None, "price": 2.0})
-    client.post("/items", json={"name": "C", "description": None, "price": 3.0})
+    for name, price in [("A", 1.0), ("B", 2.0), ("C", 3.0)]:
+        client.post("/items", json={"name": name, "description": None, "price": price})
     response = client.get("/items?skip=1&limit=2")
     assert response.status_code == 200
     data = response.json()
@@ -51,7 +50,7 @@ def test_create_item():
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["id"] == 0
+    assert data["id"] >= 1  # SQLite autoincrement starts at 1
     assert data["name"] == "Widget"
     assert data["description"] == "A nice widget"
     assert data["price"] == 9.99
@@ -66,8 +65,9 @@ def test_create_item_optional_description():
 
 def test_get_item():
     """GET /items/{item_id} returns the item when it exists."""
-    client.post("/items", json={"name": "Widget", "description": None, "price": 9.99})
-    response = client.get("/items/0")
+    create = client.post("/items", json={"name": "Widget", "description": None, "price": 9.99})
+    item_id = create.json()["id"]
+    response = client.get(f"/items/{item_id}")
     assert response.status_code == 200
     assert response.json()["name"] == "Widget"
 

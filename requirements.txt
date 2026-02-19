@@ -2,6 +2,9 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 
+# Database
+sqlalchemy==2.0.36
+
 # Testing (TestClient uses httpx)
 pytest==8.3.4
 httpx==0.28.1
