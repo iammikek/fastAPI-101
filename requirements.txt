@@ -2,5 +2,9 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 
+# Testing (TestClient uses httpx)
+pytest==8.3.4
+httpx==0.28.1
+
 # Optional: automatic API docs (included with FastAPI)
 # Pydantic is a dependency of FastAPI
