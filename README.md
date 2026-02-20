@@ -1,10 +1,10 @@
-# FastAPI + Docker Tutorial
+# FastAPI Learning Project
 
-A step-by-step guide to the project we set up: a minimal FastAPI app running in Docker with all dependencies managed for you. Use this document to understand what each piece does and how to run or extend the project.
+A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and tests. This project demonstrates core FastAPI concepts: routing, path/query parameters, request bodies, database integration, and testing.
 
 ---
 
-## What We Built
+## What's Included
 
 1. **A minimal FastAPI application** (`main.py`) with root, health, and items API
 2. **Dependency list** (`requirements.txt`) for Python packages
@@ -18,7 +18,23 @@ By the end, you can start the API with a single command and edit code while it r
 
 ---
 
-## 1. Project Structure
+## Quick Start
+
+```bash
+# Start the app
+docker compose up --build
+
+# Run tests
+docker compose run --rm api pytest tests/ -v
+```
+
+Then open:
+- **http://localhost:8000** – API
+- **http://localhost:8000/docs** – Interactive API docs
+
+---
+
+## Project Structure
 
 ```
 first-fastapi/
@@ -30,7 +46,7 @@ first-fastapi/
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
-├── TUTORIAL.md          # This file
+├── README.md            # This file
 └── tests/               # Test package (Step 11)
     ├── __init__.py
     ├── conftest.py      # Pytest fixtures (e.g. reset_db)
@@ -39,7 +55,7 @@ first-fastapi/
 
 ---
 
-## 2. Dependencies: `requirements.txt`
+## Dependencies: `requirements.txt`
 
 **What it is:** A list of Python packages and (optionally) versions. `pip` uses it to install everything the app needs.
 
@@ -71,7 +87,7 @@ httpx==0.28.1
 
 ---
 
-## 3. The FastAPI App: `main.py`
+## The FastAPI App: `main.py`
 
 **What it is:** The actual web application. FastAPI uses this file and the `app` object to serve HTTP endpoints.
 
@@ -85,7 +101,7 @@ httpx==0.28.1
 
 | Path | Method | Purpose |
 |------|--------|--------|
-| `/` | GET | Simple “hello” message |
+| `/` | GET | Simple "hello" message |
 | `/health` | GET | Health check (useful for Docker, load balancers, monitoring) |
 
 **Try it:** After starting the app, open:
@@ -124,15 +140,15 @@ def health():
 
 ---
 
-## 4. The Dockerfile
+## The Dockerfile
 
 **What it is:** Instructions for building a Docker *image*. The image is a snapshot of the OS, Python, dependencies, and your code. You then run that image as a *container*.
 
 **Line by line:**
 
 | Instruction | Meaning |
-|-------------|--------|
-| `FROM python:3.12-slim` | Start from the official Python 3.12 image; “slim” keeps the image smaller. |
+|-------------|---------|
+| `FROM python:3.12-slim` | Start from the official Python 3.12 image; "slim" keeps the image smaller. |
 | `WORKDIR /app` | Use `/app` inside the container as the current directory. |
 | `COPY requirements.txt .` | Copy only the dependency file first (see below). |
 | `RUN pip install --no-cache-dir -r requirements.txt` | Install dependencies; `--no-cache-dir` reduces image size. |
@@ -158,7 +174,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY main.py .
+COPY main.py database.py models.py .
 
 # Expose port (uvicorn default)
 EXPOSE 8000
@@ -169,14 +185,14 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
-## 5. Docker Compose: `docker-compose.yml`
+## Docker Compose: `docker-compose.yml`
 
 **What it is:** A way to define and run your app (and optionally other services) with one command. It uses the Dockerfile to build the image and then runs the container with the options we want.
 
 **What we configured:**
 
 | Key | Meaning |
-|-----|--------|
+|-----|---------|
 | `build: .` | Build the image from the Dockerfile in the current directory. |
 | `ports: "8000:8000"` | Map host port 8000 to container port 8000 so you can open http://localhost:8000. |
 | `volumes: - .:/app` | Mount the current directory into `/app` in the container so code changes are visible inside the container. |
@@ -203,7 +219,7 @@ services:
 
 ---
 
-## 6. `.dockerignore`
+## `.dockerignore`
 
 **What it is:** Like `.gitignore`, but for Docker builds. Files and directories listed here are not sent to the Docker daemon when you run `docker build` or `docker compose build`.
 
@@ -230,7 +246,7 @@ __pycache__
 
 ---
 
-## 7. How to Run Everything
+## How to Run Everything
 
 ### Using Docker Compose (recommended)
 
@@ -260,7 +276,7 @@ docker build -t first-fastapi .
 docker run -p 8000:8000 first-fastapi
 ```
 
-Here you don’t get the volume mount or `--reload`; code changes require a rebuild and new container. Good for a quick test of the “production-style” image.
+Here you don't get the volume mount or `--reload`; code changes require a rebuild and new container. Good for a quick test of the "production-style" image.
 
 ### Without Docker (local Python)
 
@@ -275,11 +291,11 @@ Same app, same URLs. Useful if you want to debug or run without Docker.
 
 ---
 
-## 8. Add an in-memory items list
+## Add an in-memory items list
 
-This step adds a small “items” API so you can practice **path parameters**, **query parameters**, and **request bodies** with a Pydantic model. Data is kept in an in-memory list (no database); it resets whenever the app restarts.
+This step adds a small "items" API so you can practice **path parameters**, **query parameters**, and **request bodies** with a Pydantic model. Data is kept in an in-memory list (no database); it resets whenever the app restarts.
 
-### 8.1 Concepts you’ll use
+### 8.1 Concepts you'll use
 
 | Concept | Where | Purpose |
 |--------|--------|---------|
@@ -310,8 +326,8 @@ class ItemCreate(BaseModel):
     price: float
 ```
 
-- **`ItemCreate`** – Fields `name`, optional `description`, and `price`. FastAPI will reject requests whose body doesn’t match (e.g. missing `name` or wrong types).
-- **`items_db`** – A list of dicts. Each item we “create” is appended here; we use the index as `id`.
+- **`ItemCreate`** – Fields `name`, optional `description`, and `price`. FastAPI will reject requests whose body doesn't match (e.g. missing `name` or wrong types).
+- **`items_db`** – A list of dicts. Each item we "create" is appended here; we use the index as `id`.
 
 ### 8.3 List items with query parameters
 
@@ -362,7 +378,7 @@ def create_item(item: ItemCreate):
 
 1. Start the app (`docker compose up --build` or `uvicorn main:app --reload`).
 2. Open **http://localhost:8000/docs**.
-3. **POST /items** – Click “Try it out”, use a body like:
+3. **POST /items** – Click "Try it out", use a body like:
    ```json
    { "name": "Widget", "description": "A nice widget", "price": 9.99 }
    ```
@@ -442,14 +458,14 @@ def create_item(item: ItemCreate):
 
 ---
 
-## 10. Add a persistent database
+## Add a persistent database
 
 This step replaces the in-memory list with **SQLite** and **SQLAlchemy** so items survive restarts. You get a real table, sessions, and a `get_db` dependency.
 
-### 10.1 What you’ll use
+### 10.1 What you'll use
 
 | Piece | Purpose |
-|-------|--------|
+|-------|---------|
 | **SQLite** | Single-file database; no separate server. Good for learning and small apps. |
 | **SQLAlchemy** | ORM: define tables as Python classes, run queries with sessions. |
 | **database.py** | Engine, `SessionLocal`, `Base`, and a `get_db()` dependency that yields a session per request. |
@@ -620,18 +636,18 @@ Tests should not use `app.db`. Set **DATABASE_URL** before the app (and `databas
 - **Root `conftest.py`** (project root): set `os.environ["DATABASE_URL"] = "sqlite:///./test.db"` at the top. Pytest loads this before test modules, so `database.py` and `main` see the test URL when they are first imported.
 - **tests/conftest.py**: add an autouse fixture that deletes all rows from `items` after each test (`reset_db`), so each test starts with an empty table.
 
-That way the app under test uses `test.db`, and tests stay isolated. See the repo’s `conftest.py` and `tests/conftest.py` for the exact snippets.
+That way the app under test uses `test.db`, and tests stay isolated. See the repo's `conftest.py` and `tests/conftest.py` for the exact snippets.
 
 ---
 
-## 11. Add a test framework
+## Add a test framework
 
-This step adds **pytest** and FastAPI’s **TestClient** so you can test your API without starting a server. Tests run in process and hit your routes like real HTTP requests.
+This step adds **pytest** and FastAPI's **TestClient** so you can test your API without starting a server. Tests run in process and hit your routes like real HTTP requests.
 
-### 11.1 What you’ll use
+### 11.1 What you'll use
 
 | Tool | Purpose |
-|------|--------|
+|------|---------|
 | **pytest** | Discovers and runs test functions; rich assertions and fixtures. |
 | **TestClient** (from `fastapi.testclient`) | Calls your FastAPI app in process; same interface as `requests` (`.get()`, `.post()`, `.json()`, etc.). Requires **httpx** to be installed. |
 | **conftest.py** | Pytest loads this automatically; we use it to set a test DB and reset data so tests stay independent. |
@@ -661,7 +677,7 @@ Create a `tests` directory and an empty package so Python (and pytest) treat it 
 # Tests package
 ```
 
-See **Step 10.7** for how the test DB and reset fixture are set up. The repo’s root `conftest.py` sets `DATABASE_URL`; `tests/conftest.py` defines a `reset_db` fixture that clears the `items` table after each test.
+See **Step 10.7** for how the test DB and reset fixture are set up. The repo's root `conftest.py` sets `DATABASE_URL`; `tests/conftest.py` defines a `reset_db` fixture that clears the `items` table after each test.
 
 ### 11.4 Write API tests with TestClient
 
@@ -785,7 +801,7 @@ docker compose run --rm api pytest tests/ -v
 
 ---
 
-## 12. Next Steps for Learning FastAPI
+## Next Steps for Learning FastAPI
 
 Now that you have path params, query params, request bodies, a persistent DB, and tests in place, you can extend the app further:
 
@@ -794,7 +810,7 @@ Now that you have path params, query params, request bodies, a persistent DB, an
 3. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
 4. **Alembic** – Add schema migrations for the database instead of `create_all`.
 
-### 12.1 PATCH /items/{item_id} (optional body fields)
+### PATCH /items/{item_id} (optional body fields)
 
 Use a Pydantic model with **all optional fields** and **`model_dump(exclude_unset=True)`** so only provided fields are updated:
 
@@ -823,10 +839,10 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## 13. Quick Reference
+## Quick Reference
 
 | Goal | Command |
-|------|--------|
+|------|---------|
 | Start app (with reload) | `docker compose up --build` |
 | Start in background | `docker compose up --build -d` |
 | Stop background app | `docker compose down` |
@@ -838,4 +854,4 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-You’ve now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, and how to iterate on the code. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add an in-memory list and a test framework, and how to iterate on the code. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
