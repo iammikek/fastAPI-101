@@ -104,3 +104,12 @@ def delete_item(
     db.delete(row)
     db.commit()
     return None
+
+
+@app.get("/items/stats/summary", response_model=dict)
+def get_items_stats(db: Session = Depends(get_db)):
+    """Get statistics about items (uses service layer)."""
+    from services import ItemService
+
+    stats = ItemService.get_stats(db)
+    return stats

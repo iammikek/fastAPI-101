@@ -15,6 +15,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 7. **A test framework** (pytest + FastAPI TestClient) for API tests (Step 11)
 8. **A CI/CD pipeline** (GitHub Actions) for automated linting and testing (Step 12)
 9. **API key authentication** (static key) for protecting endpoints (Step 13)
+10. **Service layer** (controller-service pattern) separating business logic from routes (Step 14)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -34,8 +35,9 @@ By the end, you can start the API with a single command and edit code while it r
 10. [Add a test framework](#11-add-a-test-framework)
 11. [Add a CI/CD pipeline](#12-add-a-cicd-pipeline)
 12. [Add API key authentication](#13-add-api-key-authentication)
-13. [Next Steps for Learning FastAPI](#14-next-steps-for-learning-fastapi)
-14. [Quick Reference](#15-quick-reference)
+13. [Add a service layer (controller-service pattern)](#14-add-a-service-layer-controller-service-pattern)
+14. [Next Steps for Learning FastAPI](#15-next-steps-for-learning-fastapi)
+15. [Quick Reference](#16-quick-reference)
 
 ---
 
@@ -74,6 +76,7 @@ first-fastapi/
 ├── auth.py              # API key authentication (Step 13)
 ├── .env.example         # Environment variables template
 ├── auth.py              # API key authentication (Step 13)
+├── services.py          # Service layer for business logic (Step 14)
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
 ├── pyproject.toml       # Ruff linting configuration (Step 12)
 ├── README.md            # This file
@@ -1087,7 +1090,115 @@ environment:
 
 ---
 
-## 14. Next Steps for Learning FastAPI
+## 14. Add a service layer (controller-service pattern)
+
+This step introduces the **controller-service pattern**: separate business logic from API routes. Routes (controllers) handle HTTP concerns; service classes handle business logic.
+
+### 14.1 What you'll use
+
+| Concept | Purpose |
+|---------|---------|
+| **Service class** | Contains business logic (database operations, calculations, validations). |
+| **Controller (route)** | Handles HTTP (request/response, status codes, exceptions). Calls service methods. |
+| **Separation of concerns** | Routes stay thin; business logic is reusable and testable independently. |
+
+### 14.2 Create the service class
+
+Create `services.py` with a service class that contains business logic:
+
+**Copy-paste: `services.py`**
+
+```python
+"""
+Service layer: business logic separated from API routes.
+"""
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from models import Item
+
+
+class ItemService:
+    """Service class for item business logic."""
+
+    @staticmethod
+    def get_stats(db: Session) -> dict:
+        """
+        Calculate statistics about items.
+        Returns a dict with count, average price, min price, max price.
+        """
+        count = db.query(func.count(Item.id)).scalar()
+        if count == 0:
+            return {
+                "total_items": 0,
+                "average_price": 0.0,
+                "min_price": None,
+                "max_price": None,
+            }
+
+        avg_price = db.query(func.avg(Item.price)).scalar()
+        min_price = db.query(func.min(Item.price)).scalar()
+        max_price = db.query(func.max(Item.price)).scalar()
+
+        return {
+            "total_items": count,
+            "average_price": round(float(avg_price), 2),
+            "min_price": float(min_price),
+            "max_price": float(max_price),
+        }
+```
+
+- **`@staticmethod`** – Methods don't need `self`; the class is a namespace for related functions.
+- **Business logic** – The service handles calculations (count, average, min, max) using SQLAlchemy's `func`.
+- **No HTTP concerns** – Returns plain Python dicts, not HTTP responses or exceptions.
+
+### 14.3 Add a route that uses the service
+
+Add a new endpoint in `main.py` that calls the service:
+
+```python
+@app.get("/items/stats/summary", response_model=dict)
+def get_items_stats(db: Session = Depends(get_db)):
+    """Get statistics about items (uses service layer)."""
+    from services import ItemService
+
+    stats = ItemService.get_stats(db)
+    return stats
+```
+
+**What this demonstrates:**
+
+- **Thin controller** – The route is just 3 lines: import service, call method, return result.
+- **Reusable logic** – `ItemService.get_stats()` can be called from other places (CLI, background jobs, other routes) without HTTP.
+- **Separation** – HTTP concerns (route, status codes) stay in `main.py`; business logic (calculations) stays in `services.py`.
+
+### 14.4 Update Dockerfile
+
+Add `services.py` to the COPY command:
+
+```dockerfile
+COPY main.py database.py models.py auth.py services.py .
+```
+
+### 14.5 Try it
+
+1. Start the app: `docker compose up --build` or `uvicorn main:app --reload`.
+2. Create some items via **POST /items**.
+3. Call **GET /items/stats/summary** – you'll get statistics about all items.
+4. Check the response: `{"total_items": 3, "average_price": 20.0, "min_price": 10.0, "max_price": 30.0}`
+
+### 14.6 Benefits of this pattern
+
+- **Separation of concerns** – Routes handle HTTP; services handle business logic.
+- **Reusability** – Service methods can be used by routes, CLI scripts, background tasks, etc.
+- **Testability** – Test service logic without HTTP layer (faster, simpler).
+- **Maintainability** – Business logic changes don't require touching route code.
+
+**Note:** For simple apps, this might feel like overkill. As your app grows, this separation becomes valuable. You can gradually refactor existing endpoints to use services as needed.
+
+---
+
+## 15. Next Steps for Learning FastAPI
 
 Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, and authentication in place, you can extend the app further:
 
@@ -1101,7 +1212,7 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## 15. Quick Reference
+## 16. Quick Reference
 
 | Goal | Command |
 |------|---------|

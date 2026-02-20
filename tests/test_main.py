@@ -156,3 +156,29 @@ def test_delete_item_not_found():
     response = client.delete("/items/99", headers={"X-API-Key": "dev-key-123"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Item not found"
+
+
+def test_get_items_stats_empty():
+    """GET /items/stats/summary returns stats for empty database."""
+    response = client.get("/items/stats/summary")
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_items": 0,
+        "average_price": 0.0,
+        "min_price": None,
+        "max_price": None,
+    }
+
+
+def test_get_items_stats():
+    """GET /items/stats/summary returns statistics about items."""
+    client.post("/items", json={"name": "A", "price": 10.0})
+    client.post("/items", json={"name": "B", "price": 20.0})
+    client.post("/items", json={"name": "C", "price": 30.0})
+    response = client.get("/items/stats/summary")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_items"] == 3
+    assert data["average_price"] == 20.0
+    assert data["min_price"] == 10.0
+    assert data["max_price"] == 30.0

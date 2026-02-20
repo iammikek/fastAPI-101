@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY main.py database.py models.py auth.py .
+COPY main.py database.py models.py auth.py services.py .
 
 # Expose port (uvicorn default)
 EXPOSE 8000
