@@ -787,12 +787,37 @@ docker compose run --rm api pytest tests/ -v
 
 ## 12. Next Steps for Learning FastAPI
 
-Now that you have path params, query params, request bodies, and tests in place, you can extend the app further:
+Now that you have path params, query params, request bodies, a persistent DB, and tests in place, you can extend the app further:
 
-1. **PUT or PATCH /items/{item_id}** – Update an item (body with optional fields).
-2. **DELETE /items/{item_id}** – Remove an item from `items_db`.
+1. **PATCH /items/{item_id}** – Update an item (body with optional fields). *Implemented in the repo: see `ItemUpdate` and `update_item` in `main.py`.*
+2. **DELETE /items/{item_id}** – Remove an item from the database.
 3. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
-4. **Database** – Replace `items_db` with SQLite (e.g. `sqlite3`) or an ORM to persist data.
+4. **Alembic** – Add schema migrations for the database instead of `create_all`.
+
+### 12.1 PATCH /items/{item_id} (optional body fields)
+
+Use a Pydantic model with **all optional fields** and **`model_dump(exclude_unset=True)`** so only provided fields are updated:
+
+```python
+class ItemUpdate(BaseModel):
+    """Schema for partial update (all fields optional)."""
+    name: str | None = None
+    description: str | None = None
+    price: float | None = None
+
+@app.patch("/items/{item_id}", response_model=dict)
+def update_item(item_id: int, item: ItemUpdate, db: Session = Depends(get_db)):
+    """Update an item (partial: only provided fields are updated)."""
+    row = db.get(Item, item_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    data = item.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return item_to_dict(row)
+```
 
 The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) and match this style of app (async, type hints, automatic docs).
 

@@ -26,6 +26,13 @@ class ItemCreate(BaseModel):
     price: float
 
 
+class ItemUpdate(BaseModel):
+    """Schema for partial update (all fields optional)."""
+    name: str | None = None
+    description: str | None = None
+    price: float | None = None
+
+
 def item_to_dict(row: Item) -> dict:
     """Convert Item ORM row to JSON-serializable dict."""
     return {"id": row.id, "name": row.name, "description": row.description, "price": row.price}
@@ -64,6 +71,20 @@ def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     """Create a new item (request body validated by Pydantic)."""
     row = Item(name=item.name, description=item.description, price=item.price)
     db.add(row)
+    db.commit()
+    db.refresh(row)
+    return item_to_dict(row)
+
+
+@app.patch("/items/{item_id}", response_model=dict)
+def update_item(item_id: int, item: ItemUpdate, db: Session = Depends(get_db)):
+    """Update an item (partial: only provided fields are updated)."""
+    row = db.get(Item, item_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    data = item.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(row, field, value)
     db.commit()
     db.refresh(row)
     return item_to_dict(row)
