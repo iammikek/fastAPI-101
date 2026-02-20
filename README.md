@@ -20,6 +20,25 @@ By the end, you can start the API with a single command and edit code while it r
 
 ---
 
+## Table of Contents
+
+1. [Project Structure](#1-project-structure)
+2. [Dependencies: requirements.txt](#2-dependencies-requirementstxt)
+3. [The FastAPI App: main.py](#3-the-fastapi-app-mainpy)
+4. [The Dockerfile](#4-the-dockerfile)
+5. [Docker Compose: docker-compose.yml](#5-docker-compose-docker-composeyml)
+6. [.dockerignore](#6-dockerignore)
+7. [How to Run Everything](#7-how-to-run-everything)
+8. [Add an in-memory items list](#8-add-an-in-memory-items-list)
+9. [Add a persistent database](#10-add-a-persistent-database)
+10. [Add a test framework](#11-add-a-test-framework)
+11. [Add a CI/CD pipeline](#12-add-a-cicd-pipeline)
+12. [Add API key authentication](#13-add-api-key-authentication)
+13. [Next Steps for Learning FastAPI](#14-next-steps-for-learning-fastapi)
+14. [Quick Reference](#15-quick-reference)
+
+---
+
 ## Quick Start
 
 ```bash
