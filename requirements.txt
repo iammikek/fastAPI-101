@@ -9,5 +9,8 @@ sqlalchemy==2.0.36
 pytest==8.3.4
 httpx==0.28.1
 
+# Linting
+ruff==0.6.9
+
 # Optional: automatic API docs (included with FastAPI)
 # Pydantic is a dependency of FastAPI
