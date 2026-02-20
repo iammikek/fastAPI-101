@@ -1,4 +1,4 @@
-# FastAPI Learning Project
+# Getting Fast at FastAPI
 
 A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and tests. This project demonstrates core FastAPI concepts: routing, path/query parameters, request bodies, database integration, and testing.
 
