@@ -87,7 +87,9 @@ def test_create_item_invalid_body():
 
 def test_update_item_partial():
     """PATCH /items/{item_id} updates only provided fields."""
-    create = client.post("/items", json={"name": "Widget", "description": "Original", "price": 10.0})
+    create = client.post(
+        "/items", json={"name": "Widget", "description": "Original", "price": 10.0}
+    )
     item_id = create.json()["id"]
     response = client.patch(f"/items/{item_id}", json={"price": 5.99})
     assert response.status_code == 200

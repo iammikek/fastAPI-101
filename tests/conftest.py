@@ -6,8 +6,7 @@ DATABASE_URL is set to in-memory SQLite in the project root conftest.py.
 
 import pytest
 
-from database import SessionLocal, get_db
-from main import app
+from database import SessionLocal
 from models import Item
 
 
