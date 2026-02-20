@@ -116,3 +116,43 @@ def test_update_item_not_found():
     response = client.patch("/items/99", json={"name": "Nope"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Item not found"
+
+
+def test_delete_item_with_api_key():
+    """DELETE /items/{item_id} deletes item when API key is valid."""
+    create = client.post("/items", json={"name": "To Delete", "price": 1.0})
+    item_id = create.json()["id"]
+    response = client.delete(
+        f"/items/{item_id}", headers={"X-API-Key": "dev-key-123"}
+    )
+    assert response.status_code == 204
+    # Verify item is deleted
+    get_response = client.get(f"/items/{item_id}")
+    assert get_response.status_code == 404
+
+
+def test_delete_item_without_api_key():
+    """DELETE /items/{item_id} returns 401 when API key is missing."""
+    create = client.post("/items", json={"name": "Test", "price": 1.0})
+    item_id = create.json()["id"]
+    response = client.delete(f"/items/{item_id}")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API key"
+
+
+def test_delete_item_invalid_api_key():
+    """DELETE /items/{item_id} returns 401 when API key is invalid."""
+    create = client.post("/items", json={"name": "Test", "price": 1.0})
+    item_id = create.json()["id"]
+    response = client.delete(
+        f"/items/{item_id}", headers={"X-API-Key": "wrong-key"}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API key"
+
+
+def test_delete_item_not_found():
+    """DELETE /items/{item_id} returns 404 when item does not exist."""
+    response = client.delete("/items/99", headers={"X-API-Key": "dev-key-123"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Item not found"

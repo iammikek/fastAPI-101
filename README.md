@@ -14,6 +14,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 6. **A persistent database** (SQLite + SQLAlchemy) for items (Step 10)
 7. **A test framework** (pytest + FastAPI TestClient) for API tests (Step 11)
 8. **A CI/CD pipeline** (GitHub Actions) for automated linting and testing (Step 12)
+9. **API key authentication** (static key) for protecting endpoints (Step 13)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -22,6 +23,9 @@ By the end, you can start the API with a single command and edit code while it r
 ## Quick Start
 
 ```bash
+# Copy environment variables template (optional)
+cp .env.example .env
+
 # Start the app
 docker compose up --build
 
@@ -32,6 +36,8 @@ docker compose run --rm api pytest tests/ -v
 Then open:
 - **http://localhost:8000** – API
 - **http://localhost:8000/docs** – Interactive API docs
+
+**Note:** The app works with defaults (`API_KEY=dev-key-123`, `DATABASE_URL=sqlite:///./app.db`), but you can customize them in `.env`. See `.env.example` for available variables.
 
 ---
 
@@ -46,6 +52,9 @@ first-fastapi/
 ├── Dockerfile           # How to build the container image
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
+├── auth.py              # API key authentication (Step 13)
+├── .env.example         # Environment variables template
+├── auth.py              # API key authentication (Step 13)
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
 ├── pyproject.toml       # Ruff linting configuration (Step 12)
 ├── README.md            # This file
@@ -935,45 +944,145 @@ pytest tests/ -v
 
 ---
 
-## 13. Next Steps for Learning FastAPI
+## 13. Add API key authentication
 
-Now that you have path params, query params, request bodies, a persistent DB, and tests in place, you can extend the app further:
+This step adds **simple API key authentication** using FastAPI's dependency injection. You'll protect endpoints that require authentication (like DELETE) with a static API key passed in headers.
 
-1. **PATCH /items/{item_id}** – Update an item (body with optional fields). *Implemented in the repo: see `ItemUpdate` and `update_item` in `main.py`.*
-2. **DELETE /items/{item_id}** – Remove an item from the database.
-3. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
-4. **Alembic** – Add schema migrations for the database instead of `create_all`.
+### 13.1 What you'll use
 
-### PATCH /items/{item_id} (optional body fields)
+| Concept | Purpose |
+|---------|---------|
+| **Dependency injection** | FastAPI's `Depends()` lets you create reusable dependencies (like auth checks) that run before your route handler. |
+| **Header parameter** | Read the API key from the `X-API-Key` header using FastAPI's `Header()`. |
+| **HTTPException** | Return 401 Unauthorized when authentication fails. |
+| **Environment variable** | Store the API key in `API_KEY` env var (with a default for development). |
 
-Use a Pydantic model with **all optional fields** and **`model_dump(exclude_unset=True)`** so only provided fields are updated:
+### 13.2 Create the authentication module
+
+**Copy-paste: `auth.py`**
 
 ```python
-class ItemUpdate(BaseModel):
-    """Schema for partial update (all fields optional)."""
-    name: str | None = None
-    description: str | None = None
-    price: float | None = None
+"""
+Simple API key authentication.
+Uses a static API key from environment variable API_KEY (default: 'dev-key-123').
+"""
+import os
 
-@app.patch("/items/{item_id}", response_model=dict)
-def update_item(item_id: int, item: ItemUpdate, db: Session = Depends(get_db)):
-    """Update an item (partial: only provided fields are updated)."""
+from fastapi import Header, HTTPException, status
+
+API_KEY = os.getenv("API_KEY", "dev-key-123")
+
+
+def verify_api_key(x_api_key: str | None = Header(None, description="API key for authentication")):
+    """
+    Dependency that verifies the API key from the X-API-Key header.
+    Raises 401 if the key is missing or invalid.
+    """
+    if x_api_key is None or x_api_key != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+        )
+    return x_api_key
+```
+
+- **`Header(...)`** – FastAPI reads the header value; `...` means it's required.
+- **`Depends(verify_api_key)`** – When used in a route, FastAPI calls `verify_api_key` first and only runs the route if it succeeds (doesn't raise an exception).
+
+### 13.3 Protect an endpoint with authentication
+
+Add a DELETE endpoint that requires the API key:
+
+```python
+from auth import verify_api_key
+
+@app.delete("/items/{item_id}", status_code=204)
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key),
+):
+    """Delete an item (requires API key authentication)."""
     row = db.get(Item, item_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    data = item.model_dump(exclude_unset=True)
-    for field, value in data.items():
-        setattr(row, field, value)
+    db.delete(row)
     db.commit()
-    db.refresh(row)
-    return item_to_dict(row)
+    return None
 ```
+
+- **`Depends(verify_api_key)`** – The dependency runs first; if the API key is invalid, it raises 401 and the route handler never runs.
+- **`status_code=204`** – DELETE typically returns 204 No Content (empty body).
+
+### 13.4 Update Dockerfile
+
+Add `auth.py` to the COPY command:
+
+```dockerfile
+COPY main.py database.py models.py auth.py .
+```
+
+### 13.5 Try it
+
+1. Start the app: `docker compose up --build` or `uvicorn main:app --reload`.
+2. Open **http://localhost:8000/docs**.
+3. Try **DELETE /items/{item_id}** without the header – you'll get 401.
+4. Click "Authorize" (lock icon) or add header manually:
+   - Header name: `X-API-Key`
+   - Value: `dev-key-123`
+5. Try DELETE again – it should work (204).
+
+### 13.6 Set API key in production
+
+Create a `.env` file (copy from `.env.example`) or set environment variables:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and set your API key
+API_KEY=your-secret-key-here
+```
+
+Or set it directly:
+
+```bash
+export API_KEY=your-secret-key-here
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+environment:
+  - PYTHONUNBUFFERED=1
+  - API_KEY=your-secret-key-here
+```
+
+**Security note:** This is a simple static key for learning. For production, consider:
+- JWT tokens for user authentication
+- OAuth2 with password flow
+- API key rotation
+- Rate limiting
+
+**Note:** `.env` files are gitignored (see `.gitignore`) so secrets don't get committed. Use `.env.example` to document what variables are needed.
+
+---
+
+## 14. Next Steps for Learning FastAPI
+
+Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, and authentication in place, you can extend the app further:
+
+1. **DELETE /items/{item_id}** – Remove an item from the database. *Implemented in the repo: see `delete_item` in `main.py` with API key auth.*
+2. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
+3. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
+4. **Alembic** – Add schema migrations for the database instead of `create_all`.
+5. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
 
 The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) and match this style of app (async, type hints, automatic docs).
 
 ---
 
-## 14. Quick Reference
+## 15. Quick Reference
 
 | Goal | Command |
 |------|---------|

@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from auth import verify_api_key
 from database import Base, engine, get_db
 from models import Item
 
@@ -88,3 +89,18 @@ def update_item(item_id: int, item: ItemUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(row)
     return item_to_dict(row)
+
+
+@app.delete("/items/{item_id}", status_code=204)
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key),
+):
+    """Delete an item (requires API key authentication)."""
+    row = db.get(Item, item_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    db.delete(row)
+    db.commit()
+    return None
