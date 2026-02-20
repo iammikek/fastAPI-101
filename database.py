@@ -3,8 +3,9 @@ Database connection and session management.
 Uses SQLite by default; set DATABASE_URL for a different backend.
 """
 import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
 # SQLite needs check_same_thread=False for FastAPI's async usage
