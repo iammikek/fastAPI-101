@@ -13,6 +13,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 5. **A `.dockerignore`** so unnecessary files stay out of the image
 6. **A persistent database** (SQLite + SQLAlchemy) for items (Step 10)
 7. **A test framework** (pytest + FastAPI TestClient) for API tests (Step 11)
+8. **A CI/CD pipeline** (GitHub Actions) for automated linting and testing (Step 12)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -46,7 +47,11 @@ first-fastapi/
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
+├── pyproject.toml       # Ruff linting configuration (Step 12)
 ├── README.md            # This file
+├── .github/
+│   └── workflows/
+│       └── ci.yml       # GitHub Actions CI pipeline (Step 12)
 └── tests/               # Test package (Step 11)
     ├── __init__.py
     ├── conftest.py      # Pytest fixtures (e.g. reset_db)
@@ -801,7 +806,136 @@ docker compose run --rm api pytest tests/ -v
 
 ---
 
-## Next Steps for Learning FastAPI
+## 12. Add a CI/CD pipeline
+
+This step adds **GitHub Actions** to automatically run linting and tests on every push and pull request. This catches issues before they reach the main branch.
+
+### 12.1 What you'll use
+
+| Tool | Purpose |
+|------|---------|
+| **GitHub Actions** | CI/CD platform built into GitHub; runs workflows defined in YAML files. |
+| **ruff** | Fast Python linter that checks code style and catches errors. |
+| **Workflow file** | `.github/workflows/ci.yml` defines when and how to run the pipeline. |
+
+### 12.2 Add ruff to dependencies
+
+Add ruff to `requirements.txt`:
+
+```txt
+# Linting
+ruff==0.6.9
+```
+
+### 12.3 Configure ruff
+
+Create `pyproject.toml` to configure ruff's rules and settings:
+
+**Copy-paste: `pyproject.toml`**
+
+```toml
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["main", "database", "models"]
+```
+
+- **`select`** – Enable rule categories: E (errors), F (pyflakes), I (import sorting), N (naming), W (warnings), UP (pyupgrade).
+- **`line-length`** – Max line length (100 characters).
+- **`target-version`** – Python version to target (3.12).
+
+### 12.4 Create the GitHub Actions workflow
+
+Create `.github/workflows/ci.yml` to define the pipeline:
+
+**Copy-paste: `.github/workflows/ci.yml`**
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run ruff linter
+      run: |
+        ruff check .
+    
+    - name: Run tests
+      run: |
+        pytest tests/ -v
+```
+
+**What this does:**
+
+- **`on: push/pull_request`** – Triggers on pushes and PRs to `main`.
+- **`runs-on: ubuntu-latest`** – Uses GitHub's Ubuntu runner.
+- **`actions/checkout@v4`** – Checks out your code.
+- **`actions/setup-python@v5`** – Sets up Python 3.12.
+- **`ruff check .`** – Lints all Python files.
+- **`pytest tests/ -v`** – Runs all tests.
+
+### 12.5 How it works
+
+1. **Push to GitHub** – When you push code or open a PR, GitHub Actions starts the workflow.
+2. **Checkout code** – The runner gets your repository.
+3. **Set up Python** – Python 3.12 is installed.
+4. **Install dependencies** – `pip install -r requirements.txt` installs FastAPI, pytest, ruff, etc.
+5. **Run linting** – `ruff check .` scans for style issues and errors.
+6. **Run tests** – `pytest tests/ -v` runs your test suite.
+
+If linting or tests fail, the workflow fails and you'll see a red X on the commit/PR. Fix the issues and push again.
+
+### 12.6 View workflow runs
+
+- Go to your repository on GitHub.
+- Click the **"Actions"** tab.
+- You'll see a list of workflow runs with their status (green checkmark = passed, red X = failed).
+- Click a run to see detailed logs for each step.
+
+### 12.7 Try it locally
+
+Before pushing, you can run the same checks locally:
+
+```bash
+# Install ruff if not already installed
+pip install ruff
+
+# Run linting
+ruff check .
+
+# Run tests
+pytest tests/ -v
+```
+
+---
+
+## 13. Next Steps for Learning FastAPI
 
 Now that you have path params, query params, request bodies, a persistent DB, and tests in place, you can extend the app further:
 
@@ -839,7 +973,7 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## Quick Reference
+## 14. Quick Reference
 
 | Goal | Command |
 |------|---------|
@@ -851,7 +985,9 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 | Run locally (no Docker) | `uvicorn main:app --reload` |
 | Run tests | `pytest tests/ -v` |
 | Run tests in Docker | `docker compose run --rm api pytest tests/ -v` |
+| Run linting locally | `ruff check .` |
+| View CI runs | GitHub → Actions tab |
 
 ---
 
-You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add an in-memory list and a test framework, and how to iterate on the code. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add an in-memory list, a test framework, and a CI/CD pipeline, and how to iterate on the code. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
