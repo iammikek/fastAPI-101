@@ -3,12 +3,12 @@ FastAPI learning project - minimal app to get started.
 Run with: uvicorn main:app --reload
 """
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import verify_api_key
 from database import Base, engine, get_db
 from models import Item
+from schemas import ItemCreate, ItemUpdate
 
 # Create tables on startup (SQLite file is created here if missing)
 Base.metadata.create_all(bind=engine)
@@ -20,23 +20,15 @@ app = FastAPI(
 )
 
 
-class ItemCreate(BaseModel):
-    """Schema for creating an item (request body)."""
-    name: str
-    description: str | None = None
-    price: float
-
-
-class ItemUpdate(BaseModel):
-    """Schema for partial update (all fields optional)."""
-    name: str | None = None
-    description: str | None = None
-    price: float | None = None
-
-
 def item_to_dict(row: Item) -> dict:
     """Convert Item ORM row to JSON-serializable dict."""
-    return {"id": row.id, "name": row.name, "description": row.description, "price": row.price}
+    return {
+        "id": row.id,
+        "name": row.name,
+        "description": row.description,
+        "price": row.price,
+        "category": row.category,
+    }
 
 
 @app.get("/")
@@ -70,7 +62,12 @@ def get_item(item_id: int, db: Session = Depends(get_db)):
 @app.post("/items", response_model=dict, status_code=201)
 def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     """Create a new item (request body validated by Pydantic)."""
-    row = Item(name=item.name, description=item.description, price=item.price)
+    row = Item(
+        name=item.name,
+        description=item.description,
+        price=item.price,
+        category=item.category,
+    )
     db.add(row)
     db.commit()
     db.refresh(row)

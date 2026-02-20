@@ -63,6 +63,24 @@ def test_create_item_optional_description():
     assert response.json()["description"] is None
 
 
+def test_create_item_with_category():
+    """POST /items accepts category field."""
+    response = client.post(
+        "/items", json={"name": "Gadget", "price": 15.0, "category": "Electronics"}
+    )
+    assert response.status_code == 201
+    assert response.json()["category"] == "Electronics"
+
+
+def test_update_item_category():
+    """PATCH /items/{item_id} can update category."""
+    create = client.post("/items", json={"name": "Item", "price": 10.0})
+    item_id = create.json()["id"]
+    response = client.patch(f"/items/{item_id}", json={"category": "Tools"})
+    assert response.status_code == 200
+    assert response.json()["category"] == "Tools"
+
+
 def test_get_item():
     """GET /items/{item_id} returns the item when it exists."""
     create = client.post("/items", json={"name": "Widget", "description": None, "price": 9.99})
@@ -108,7 +126,12 @@ def test_update_item_full():
         json={"name": "New", "description": "Updated", "price": 2.5},
     )
     assert response.status_code == 200
-    assert response.json() == {"id": item_id, "name": "New", "description": "Updated", "price": 2.5}
+    data = response.json()
+    assert data["id"] == item_id
+    assert data["name"] == "New"
+    assert data["description"] == "Updated"
+    assert data["price"] == 2.5
+    assert "category" in data  # category field exists (can be None)
 
 
 def test_update_item_not_found():

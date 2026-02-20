@@ -7,4 +7,4 @@ select = ["E", "F", "I", "N", "W", "UP"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["auth", "database", "main", "models", "services"]
+known-first-party = ["auth", "database", "main", "models", "schemas", "services"]

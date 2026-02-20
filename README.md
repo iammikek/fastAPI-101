@@ -16,6 +16,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 8. **A CI/CD pipeline** (GitHub Actions) for automated linting and testing (Step 12)
 9. **API key authentication** (static key) for protecting endpoints (Step 13)
 10. **Service layer** (controller-service pattern) separating business logic from routes (Step 14)
+11. **Database schema changes** (adding fields) with notes on migrations (Step 15)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -36,8 +37,9 @@ By the end, you can start the API with a single command and edit code while it r
 11. [Add a CI/CD pipeline](#12-add-a-cicd-pipeline)
 12. [Add API key authentication](#13-add-api-key-authentication)
 13. [Add a service layer (controller-service pattern)](#14-add-a-service-layer-controller-service-pattern)
-14. [Next Steps for Learning FastAPI](#15-next-steps-for-learning-fastapi)
-15. [Quick Reference](#16-quick-reference)
+14. [Add a new field to the items table](#15-add-a-new-field-to-the-items-table)
+15. [Next Steps for Learning FastAPI](#16-next-steps-for-learning-fastapi)
+16. [Quick Reference](#17-quick-reference)
 
 ---
 
@@ -76,6 +78,7 @@ first-fastapi/
 ├── auth.py              # API key authentication (Step 13)
 ├── .env.example         # Environment variables template
 ├── auth.py              # API key authentication (Step 13)
+├── schemas.py           # Pydantic schemas for request/response (Step 15)
 ├── services.py          # Service layer for business logic (Step 14)
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
 ├── pyproject.toml       # Ruff linting configuration (Step 12)
@@ -1198,7 +1201,155 @@ COPY main.py database.py models.py auth.py services.py .
 
 ---
 
-## 15. Next Steps for Learning FastAPI
+## 15. Add a new field to the items table
+
+This step shows how to add a new column to your database table. We'll add a `category` field to demonstrate the process.
+
+### 15.1 What you need to update
+
+When adding a new field, you need to update:
+1. **The SQLAlchemy model** (`models.py`) – defines the database column
+2. **Pydantic schemas** (`main.py`) – `ItemCreate` and `ItemUpdate` for request validation
+3. **The response helper** (`item_to_dict`) – includes the field in JSON responses
+4. **The create endpoint** – passes the field when creating items
+
+### 15.2 Update the model
+
+In `models.py`, add the new column to the `Item` class:
+
+```python
+class Item(Base):
+    """Item table: id, name, description, price, category."""
+
+    __tablename__ = "items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    price = Column(Float, nullable=False)
+    category = Column(String(100), nullable=True)  # New optional field
+```
+
+- **`nullable=True`** – Makes the field optional (can be `None`). **Important:** This means existing code continues to work without changes.
+- **`String(100)`** – Limits the category to 100 characters.
+
+### 15.3 Update Pydantic schemas
+
+**Best practice:** Extract schemas to a separate `schemas.py` file for better organization:
+
+**Copy-paste: `schemas.py`**
+
+```python
+"""
+Pydantic schemas for request/response validation.
+"""
+from pydantic import BaseModel
+
+
+class ItemCreate(BaseModel):
+    """Schema for creating an item (request body)."""
+    name: str
+    description: str | None = None
+    price: float
+    category: str | None = None  # New optional field
+
+
+class ItemUpdate(BaseModel):
+    """Schema for partial update (all fields optional)."""
+    name: str | None = None
+    description: str | None = None
+    price: float | None = None
+    category: str | None = None  # New optional field
+```
+
+Then in `main.py`, import them:
+
+```python
+from schemas import ItemCreate, ItemUpdate
+```
+
+**Note:** Because the field is optional (`| None = None`), existing requests without `category` still work. This keeps earlier tutorial steps compatible.
+
+**Why separate schemas?** Keeping Pydantic models in `schemas.py` separates validation logic from route handlers, making the codebase easier to navigate and maintain.
+
+### 15.4 Update the response helper
+
+Update `item_to_dict()` to include the new field:
+
+```python
+def item_to_dict(row: Item) -> dict:
+    """Convert Item ORM row to JSON-serializable dict."""
+    return {
+        "id": row.id,
+        "name": row.name,
+        "description": row.description,
+        "price": row.price,
+        "category": row.category,  # New field
+    }
+```
+
+### 15.4 Update the create endpoint
+
+Update `create_item()` to pass the new field:
+
+```python
+@app.post("/items", response_model=dict, status_code=201)
+def create_item(item: ItemCreate, db: Session = Depends(get_db)):
+    """Create a new item (request body validated by Pydantic)."""
+    row = Item(
+        name=item.name,
+        description=item.description,
+        price=item.price,
+        category=item.category,  # New field
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return item_to_dict(row)
+```
+
+### 15.5 Update Dockerfile
+
+Add `schemas.py` to the COPY command:
+
+```dockerfile
+COPY main.py database.py models.py auth.py services.py schemas.py .
+```
+
+### 15.6 Important: Database schema changes
+
+**⚠️ Important:** `Base.metadata.create_all()` only creates tables if they don't exist. It **does not** alter existing tables to add new columns.
+
+**For development/testing:**
+- Delete `app.db` and `test.db` files
+- Restart the app – tables will be recreated with the new schema
+- **Existing code continues to work** – because `category` is optional, requests without it still succeed
+
+**For production:**
+- Use **Alembic** (database migrations) to alter existing tables safely
+- This is covered in "Next Steps" (Alembic)
+
+**Why optional fields help:** By making new fields optional (`nullable=True`, `| None = None`), you can add them without breaking existing API clients or tutorial steps.
+
+### 15.7 Try it
+
+1. Delete existing database files: `rm app.db test.db` (if they exist).
+2. Start the app: `docker compose up --build` or `uvicorn main:app --reload`.
+3. Create an item with category:
+   ```json
+   POST /items
+   {
+     "name": "Laptop",
+     "price": 999.99,
+     "category": "Electronics"
+   }
+   ```
+4. The response will include `"category": "Electronics"`.
+5. Update the category: `PATCH /items/{id}` with `{"category": "Computers"}`.
+
+---
+
+## 16. Next Steps for Learning FastAPI
 
 Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, and authentication in place, you can extend the app further:
 
@@ -1212,7 +1363,7 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## 16. Quick Reference
+## 17. Quick Reference
 
 | Goal | Command |
 |------|---------|
