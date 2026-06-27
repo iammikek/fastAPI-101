@@ -14,7 +14,7 @@ from alembic import command
 from alembic.config import Config
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Item
+from app.models import Category, Item
 from main import app
 
 
@@ -27,11 +27,12 @@ def run_migrations():
 
 @pytest.fixture(autouse=True)
 def reset_db():
-    """Clear items between tests so each test starts with an empty table."""
+    """Clear items and categories between tests."""
     yield
     db = SessionLocal()
     try:
         db.query(Item).delete()
+        db.query(Category).delete()
         db.commit()
     finally:
         db.close()
@@ -48,6 +49,19 @@ def client():
 def auth_headers():
     """Valid API key headers for protected endpoints."""
     return {"X-API-Key": get_settings().api_key}
+
+
+@pytest.fixture
+def create_category(client, auth_headers) -> Callable[..., dict[str, Any]]:
+    """Factory for creating categories via the API."""
+
+    def _create_category(**overrides: Any) -> dict[str, Any]:
+        payload = {"name": "Tools", **overrides}
+        response = client.post("/categories", json=payload, headers=auth_headers)
+        assert response.status_code == 201
+        return response.json()
+
+    return _create_category
 
 
 @pytest.fixture

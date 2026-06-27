@@ -1,16 +1,19 @@
 """Integration tests for PATCH /items/{item_id}."""
 
 
-def test_update_item_category(client, sample_item, auth_headers):
-    """PATCH /items/{item_id} can update category."""
+def test_update_item_category(client, sample_item, auth_headers, create_category):
+    """PATCH /items/{item_id} can update category_id."""
+    category = create_category(name="Tools")
     item_id = sample_item["id"]
     response = client.patch(
         f"/items/{item_id}",
         headers=auth_headers,
-        json={"category": "Tools"},
+        json={"category_id": category["id"]},
     )
     assert response.status_code == 200
-    assert response.json()["category"] == "Tools"
+    data = response.json()
+    assert data["category_id"] == category["id"]
+    assert data["category"]["name"] == "Tools"
 
 
 def test_update_item_partial(client, create_item, auth_headers):
@@ -42,7 +45,7 @@ def test_update_item_full(client, create_item, auth_headers):
     assert data["name"] == "New"
     assert data["description"] == "Updated"
     assert data["price"] == 2.5
-    assert "category" in data
+    assert "category_id" in data
 
 
 def test_update_item_not_found(client, auth_headers):

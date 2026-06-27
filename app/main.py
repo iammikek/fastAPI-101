@@ -13,8 +13,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.exceptions import ItemNotFoundError
-from app.routers import health, items
+from app.exceptions import (
+    CategoryInUseError,
+    CategoryNameExistsError,
+    CategoryNotFoundError,
+    ItemNotFoundError,
+)
+from app.routers import categories, health, items
 
 logger = logging.getLogger("app")
 
@@ -28,10 +33,20 @@ def configure_logging() -> None:
     )
 
 
+def run_migrations() -> None:
+    """Apply pending Alembic migrations (same as docker compose startup)."""
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown."""
     configure_logging()
+    run_migrations()
     logger.info("Starting application")
     yield
     logger.info("Shutting down application")
@@ -79,6 +94,36 @@ def create_app() -> FastAPI:
             content={"detail": "Item not found", "code": "ITEM_NOT_FOUND"},
         )
 
+    @application.exception_handler(CategoryNotFoundError)
+    async def category_not_found_handler(request: Request, exc: CategoryNotFoundError):
+        """Return consistent 404 for missing categories."""
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Category not found", "code": "CATEGORY_NOT_FOUND"},
+        )
+
+    @application.exception_handler(CategoryInUseError)
+    async def category_in_use_handler(request: Request, exc: CategoryInUseError):
+        """Return 409 when a category still has items."""
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Category has items and cannot be deleted",
+                "code": "CATEGORY_IN_USE",
+            },
+        )
+
+    @application.exception_handler(CategoryNameExistsError)
+    async def category_name_exists_handler(request: Request, exc: CategoryNameExistsError):
+        """Return 409 when a category name is already taken."""
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": f"Category name '{exc.name}' already exists",
+                "code": "CATEGORY_NAME_EXISTS",
+            },
+        )
+
     @application.exception_handler(SQLAlchemyError)
     async def database_error_handler(request: Request, exc: SQLAlchemyError):
         """Return consistent 500 for database errors."""
@@ -89,6 +134,7 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(health.router)
+    application.include_router(categories.router)
     application.include_router(items.router)
     return application
 

@@ -1,13 +1,20 @@
 """Item CRUD and statistics routes."""
 
 import logging
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth import verify_api_key
 from app.database import get_db
-from app.schemas import ItemCreate, ItemResponse, ItemStatsResponse, ItemUpdate
+from app.schemas import (
+    ItemCreate,
+    ItemListFilters,
+    ItemResponse,
+    ItemStatsResponse,
+    ItemUpdate,
+)
 from app.services import ItemService
 
 logger = logging.getLogger("app")
@@ -19,10 +26,20 @@ router = APIRouter(prefix="/items", tags=["items"])
 def list_items(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
+    min_price: Decimal | None = Query(None, gt=0),
+    max_price: Decimal | None = Query(None, gt=0),
+    category_id: int | None = Query(None, ge=1),
+    name_contains: str | None = Query(None, min_length=1, max_length=255),
     db: Session = Depends(get_db),
 ):
-    """List items with optional pagination (query params: skip, limit)."""
-    rows = ItemService.list_items(db, skip=skip, limit=limit)
+    """List items with pagination and optional query filters."""
+    filters = ItemListFilters(
+        min_price=min_price,
+        max_price=max_price,
+        category_id=category_id,
+        name_contains=name_contains,
+    )
+    rows = ItemService.list_items(db, skip=skip, limit=limit, filters=filters)
     return [ItemResponse.model_validate(row) for row in rows]
 
 

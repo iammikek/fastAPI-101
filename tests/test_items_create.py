@@ -27,15 +27,29 @@ def test_create_item_optional_description(client, auth_headers):
     assert response.json()["description"] is None
 
 
-def test_create_item_with_category(client, auth_headers):
-    """POST /items accepts category field."""
+def test_create_item_with_category(client, auth_headers, create_category):
+    """POST /items accepts category_id and returns nested category."""
+    category = create_category(name="Electronics")
     response = client.post(
         "/items",
         headers=auth_headers,
-        json={"name": "Gadget", "price": 15.0, "category": "Electronics"},
+        json={"name": "Gadget", "price": 15.0, "category_id": category["id"]},
     )
     assert response.status_code == 201
-    assert response.json()["category"] == "Electronics"
+    data = response.json()
+    assert data["category_id"] == category["id"]
+    assert data["category"]["name"] == "Electronics"
+
+
+def test_create_item_with_invalid_category_id(client, auth_headers):
+    """POST /items returns 404 when category_id does not exist."""
+    response = client.post(
+        "/items",
+        headers=auth_headers,
+        json={"name": "Gadget", "price": 15.0, "category_id": 999},
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "CATEGORY_NOT_FOUND"
 
 
 def test_create_item_without_api_key(client):
