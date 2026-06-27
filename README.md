@@ -17,6 +17,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 9. **API key authentication** (static key) for protecting endpoints (Step 13)
 10. **Service layer** (controller-service pattern) separating business logic from routes (Step 14)
 11. **Database schema changes** (adding fields) with notes on migrations (Step 15)
+12. **Production best practices** (typed responses, validation rules, lifespan startup, secure auth) (Step 16)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -38,8 +39,9 @@ By the end, you can start the API with a single command and edit code while it r
 12. [Add API key authentication](#13-add-api-key-authentication)
 13. [Add a service layer (controller-service pattern)](#14-add-a-service-layer-controller-service-pattern)
 14. [Add a new field to the items table](#15-add-a-new-field-to-the-items-table)
-15. [Next Steps for Learning FastAPI](#16-next-steps-for-learning-fastapi)
-16. [Quick Reference](#17-quick-reference)
+15. [Production best practices](#16-production-best-practices)
+16. [Next Steps for Learning FastAPI](#17-next-steps-for-learning-fastapi)
+17. [Quick Reference](#18-quick-reference)
 
 ---
 
@@ -58,28 +60,27 @@ docker compose run --rm api pytest tests/ -v
 
 Then open:
 - **http://localhost:8000** – API
-- **http://localhost:8000/docs** – Interactive API docs
+- **http://localhost:8000/docs** – Interactive API docs (click **Authorize** to set `X-API-Key` for DELETE)
 
-**Note:** The app works with defaults (`API_KEY=dev-key-123`, `DATABASE_URL=sqlite:///./app.db`), but you can customize them in `.env`. See `.env.example` for available variables.
+**Note:** The app works with defaults (`API_KEY=dev-key-123`, `DATABASE_URL=sqlite:///./app.db`), but you can customize them in `.env`. See `.env.example` for available variables. Docker Compose loads `.env` automatically via `env_file`.
 
 ---
 
 ## Project Structure
 
 ```
-first-fastapi/
-├── main.py              # FastAPI application
+fastAPI-101/
+├── main.py              # FastAPI application (routes, lifespan startup)
 ├── requirements.txt     # Python dependencies
-├── database.py           # SQLAlchemy engine, session, get_db (Step 10)
+├── database.py          # SQLAlchemy engine, session, get_db (Step 10)
 ├── models.py            # ORM models, e.g. Item (Step 10)
+├── schemas.py           # Pydantic request/response schemas (Steps 15–16)
+├── auth.py              # API key authentication (Steps 13, 16)
+├── services.py          # Service layer for business logic (Step 14)
 ├── Dockerfile           # How to build the container image
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
-├── auth.py              # API key authentication (Step 13)
 ├── .env.example         # Environment variables template
-├── auth.py              # API key authentication (Step 13)
-├── schemas.py           # Pydantic schemas for request/response (Step 15)
-├── services.py          # Service layer for business logic (Step 14)
 ├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
 ├── pyproject.toml       # Ruff linting configuration (Step 12)
 ├── README.md            # This file
@@ -88,7 +89,7 @@ first-fastapi/
 │       └── ci.yml       # GitHub Actions CI pipeline (Step 12)
 └── tests/               # Test package (Step 11)
     ├── __init__.py
-    ├── conftest.py      # Pytest fixtures (e.g. reset_db)
+    ├── conftest.py      # Pytest fixtures (create_tables, reset_db)
     └── test_main.py     # API tests with TestClient
 ```
 
@@ -236,6 +237,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 | `ports: "8000:8000"` | Map host port 8000 to container port 8000 so you can open http://localhost:8000. |
 | `volumes: - .:/app` | Mount the current directory into `/app` in the container so code changes are visible inside the container. |
 | `command: uvicorn ... --reload` | Run uvicorn with `--reload` so the server restarts when you change code. |
+| `env_file: .env` | Load `API_KEY` and `DATABASE_URL` from a local `.env` file (Step 16). |
 | `environment: PYTHONUNBUFFERED=1` | Makes Python output show up immediately in `docker compose` logs. |
 
 **Result:** One command starts the API and gives you hot reload while you learn and edit `main.py`.
@@ -252,6 +254,8 @@ services:
       # Mount source for development (changes reflect after reload)
       - .:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
 ```
@@ -290,7 +294,7 @@ __pycache__
 ### Using Docker Compose (recommended)
 
 ```bash
-# From the project root (first-fastapi/)
+# From the project root
 docker compose up --build
 ```
 
@@ -311,8 +315,8 @@ Then open:
 ### Using Docker only (no Compose)
 
 ```bash
-docker build -t first-fastapi .
-docker run -p 8000:8000 first-fastapi
+docker build -t fastapi-101 .
+docker run -p 8000:8000 fastapi-101
 ```
 
 Here you don't get the volume mount or `--reload`; code changes require a rebuild and new container. Good for a quick test of the "production-style" image.
@@ -581,12 +585,12 @@ class Item(Base):
 
 In `main.py`:
 
-1. Create tables on startup: `Base.metadata.create_all(bind=engine)` (so `app.db` and the `items` table exist).
+1. Create tables on startup: `Base.metadata.create_all(bind=engine)` (so `app.db` and the `items` table exist). *In the current repo this runs in a lifespan hook — see Step 16.*
 2. Use `Depends(get_db)` in routes that need a session.
 3. Replace the in-memory list with `db.query(Item)` / `db.add` / `db.commit` / `db.refresh`.
-4. Convert ORM rows to dicts for JSON (e.g. a small `item_to_dict(row)` helper).
+4. Convert ORM rows to JSON responses (Step 16 uses `ItemResponse.model_validate(row)` instead of a manual dict helper).
 
-**Copy-paste: full `main.py` (with persistent DB)**
+**Copy-paste: full `main.py` (with persistent DB — simplified tutorial version)**
 
 ```python
 """
@@ -673,7 +677,7 @@ Add `app.db` (and `*.db` if you like) to `.gitignore` so the DB file is not comm
 Tests should not use `app.db`. Set **DATABASE_URL** before the app (and `database`) is loaded so the app uses a test database:
 
 - **Root `conftest.py`** (project root): set `os.environ["DATABASE_URL"] = "sqlite:///./test.db"` at the top. Pytest loads this before test modules, so `database.py` and `main` see the test URL when they are first imported.
-- **tests/conftest.py**: add an autouse fixture that deletes all rows from `items` after each test (`reset_db`), so each test starts with an empty table.
+- **tests/conftest.py**: a session-scoped `create_tables` fixture runs `Base.metadata.create_all()` (mirrors app lifespan startup), and an autouse `reset_db` fixture deletes all rows from `items` after each test so each test starts with an empty table.
 
 That way the app under test uses `test.db`, and tests stay isolated. See the repo's `conftest.py` and `tests/conftest.py` for the exact snippets.
 
@@ -978,7 +982,8 @@ This step adds **simple API key authentication** using FastAPI's dependency inje
 | Concept | Purpose |
 |---------|---------|
 | **Dependency injection** | FastAPI's `Depends()` lets you create reusable dependencies (like auth checks) that run before your route handler. |
-| **Header parameter** | Read the API key from the `X-API-Key` header using FastAPI's `Header()`. |
+| **APIKeyHeader** | Registers the `X-API-Key` header in OpenAPI so Swagger UI shows an **Authorize** button (Step 16). |
+| **secrets.compare_digest** | Timing-safe comparison of API keys (Step 16). |
 | **HTTPException** | Return 401 Unauthorized when authentication fails. |
 | **Environment variable** | Store the API key in `API_KEY` env var (with a default for development). |
 
@@ -992,18 +997,22 @@ Simple API key authentication.
 Uses a static API key from environment variable API_KEY (default: 'dev-key-123').
 """
 import os
+import secrets
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import APIKeyHeader
 
 API_KEY = os.getenv("API_KEY", "dev-key-123")
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-def verify_api_key(x_api_key: str | None = Header(None, description="API key for authentication")):
+
+def verify_api_key(x_api_key: str | None = Depends(api_key_header)):
     """
     Dependency that verifies the API key from the X-API-Key header.
     Raises 401 if the key is missing or invalid.
     """
-    if x_api_key is None or x_api_key != API_KEY:
+    if x_api_key is None or not secrets.compare_digest(x_api_key, API_KEY):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
@@ -1011,7 +1020,8 @@ def verify_api_key(x_api_key: str | None = Header(None, description="API key for
     return x_api_key
 ```
 
-- **`Header(...)`** – FastAPI reads the header value; `...` means it's required.
+- **`APIKeyHeader`** – Reads the header and registers it in OpenAPI docs for the Authorize button.
+- **`secrets.compare_digest`** – Compares keys in constant time to reduce timing-attack risk.
 - **`Depends(verify_api_key)`** – When used in a route, FastAPI calls `verify_api_key` first and only runs the route if it succeeds (doesn't raise an exception).
 
 ### 13.3 Protect an endpoint with authentication
@@ -1075,7 +1085,16 @@ Or set it directly:
 export API_KEY=your-secret-key-here
 ```
 
-Or in `docker-compose.yml`:
+Or in `docker-compose.yml` (recommended — loads all vars from `.env`):
+
+```yaml
+env_file:
+  - .env
+environment:
+  - PYTHONUNBUFFERED=1
+```
+
+Or set individual variables inline:
 
 ```yaml
 environment:
@@ -1157,16 +1176,16 @@ class ItemService:
 
 ### 14.3 Add a route that uses the service
 
-Add a new endpoint in `main.py` that calls the service:
+Add a new endpoint in `main.py` that calls the service (register this route **before** `/items/{item_id}`):
 
 ```python
-@app.get("/items/stats/summary", response_model=dict)
+from schemas import ItemStatsResponse
+from services import ItemService
+
+@app.get("/items/stats/summary", response_model=ItemStatsResponse)
 def get_items_stats(db: Session = Depends(get_db)):
     """Get statistics about items (uses service layer)."""
-    from services import ItemService
-
-    stats = ItemService.get_stats(db)
-    return stats
+    return ItemService.get_stats(db)
 ```
 
 **What this demonstrates:**
@@ -1209,8 +1228,8 @@ This step shows how to add a new column to your database table. We'll add a `cat
 
 When adding a new field, you need to update:
 1. **The SQLAlchemy model** (`models.py`) – defines the database column
-2. **Pydantic schemas** (`main.py`) – `ItemCreate` and `ItemUpdate` for request validation
-3. **The response helper** (`item_to_dict`) – includes the field in JSON responses
+2. **Pydantic schemas** (`schemas.py`) – `ItemCreate` and `ItemUpdate` for request validation
+3. **The response schema** (`ItemResponse` in `schemas.py`) – includes the field in JSON responses
 4. **The create endpoint** – passes the field when creating items
 
 ### 15.2 Update the model
@@ -1237,76 +1256,74 @@ class Item(Base):
 
 **Best practice:** Extract schemas to a separate `schemas.py` file for better organization:
 
-**Copy-paste: `schemas.py`**
+**Copy-paste: `schemas.py`** (request and response schemas)
 
 ```python
 """
 Pydantic schemas for request/response validation.
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ItemCreate(BaseModel):
     """Schema for creating an item (request body)."""
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    price: float
-    category: str | None = None  # New optional field
+    price: float = Field(gt=0)
+    category: str | None = Field(default=None, max_length=100)
 
 
 class ItemUpdate(BaseModel):
     """Schema for partial update (all fields optional)."""
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    price: float | None = None
-    category: str | None = None  # New optional field
+    price: float | None = Field(default=None, gt=0)
+    category: str | None = Field(default=None, max_length=100)
+
+
+class ItemResponse(BaseModel):
+    """Schema for item responses."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    price: float
+    category: str | None
 ```
 
 Then in `main.py`, import them:
 
 ```python
-from schemas import ItemCreate, ItemUpdate
+from schemas import ItemCreate, ItemResponse, ItemUpdate
 ```
 
-**Note:** Because the field is optional (`| None = None`), existing requests without `category` still work. This keeps earlier tutorial steps compatible.
+**Note:** Because `category` is optional (`| None = None`), existing requests without `category` still work. This keeps earlier tutorial steps compatible.
 
 **Why separate schemas?** Keeping Pydantic models in `schemas.py` separates validation logic from route handlers, making the codebase easier to navigate and maintain.
 
-### 15.4 Update the response helper
+### 15.4 Update routes to use response schemas
 
-Update `item_to_dict()` to include the new field:
-
-```python
-def item_to_dict(row: Item) -> dict:
-    """Convert Item ORM row to JSON-serializable dict."""
-    return {
-        "id": row.id,
-        "name": row.name,
-        "description": row.description,
-        "price": row.price,
-        "category": row.category,  # New field
-    }
-```
-
-### 15.4 Update the create endpoint
-
-Update `create_item()` to pass the new field:
+Return `ItemResponse` instead of a manual dict helper:
 
 ```python
-@app.post("/items", response_model=dict, status_code=201)
+@app.post("/items", response_model=ItemResponse, status_code=201)
 def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     """Create a new item (request body validated by Pydantic)."""
     row = Item(
         name=item.name,
         description=item.description,
         price=item.price,
-        category=item.category,  # New field
+        category=item.category,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return item_to_dict(row)
+    return ItemResponse.model_validate(row)
 ```
+
+- **`model_config = ConfigDict(from_attributes=True)`** – Lets Pydantic read SQLAlchemy ORM objects directly.
+- **`ItemResponse.model_validate(row)`** – Converts an ORM row to a typed response (replaces a manual `item_to_dict()` helper).
 
 ### 15.5 Update Dockerfile
 
@@ -1318,7 +1335,7 @@ COPY main.py database.py models.py auth.py services.py schemas.py .
 
 ### 15.6 Important: Database schema changes
 
-**⚠️ Important:** `Base.metadata.create_all()` only creates tables if they don't exist. It **does not** alter existing tables to add new columns.
+**⚠️ Important:** `Base.metadata.create_all()` (now in the lifespan hook) only creates tables if they don't exist. It **does not** alter existing tables to add new columns.
 
 **For development/testing:**
 - Delete `app.db` and `test.db` files
@@ -1349,21 +1366,147 @@ COPY main.py database.py models.py auth.py services.py schemas.py .
 
 ---
 
-## 16. Next Steps for Learning FastAPI
+## 16. Production best practices
 
-Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, and authentication in place, you can extend the app further:
+This step refactors the app toward patterns you'll see in production APIs. If you're coming from Laravel, think of this as adding **API Resources**, **Form Request validation rules**, and **Service Provider boot logic**.
 
-1. **DELETE /items/{item_id}** – Remove an item from the database. *Implemented in the repo: see `delete_item` in `main.py` with API key auth.*
-2. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
-3. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
-4. **Alembic** – Add schema migrations for the database instead of `create_all`.
-5. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
+### 16.1 What you'll use
+
+| Concept | Purpose | Laravel parallel |
+|---------|---------|------------------|
+| **Response schemas** | Typed JSON output; better OpenAPI docs | API Resources (`ItemResource`) |
+| **Field constraints** | Validate input beyond "is it a string?" | Form Request rules (`gt:0`, `max:255`) |
+| **Query bounds** | Cap pagination params | `$request->validate(['limit' => 'max:100'])` |
+| **Lifespan hook** | Run startup logic when the app boots | `AppServiceProvider::boot()` |
+| **APIKeyHeader** | Swagger Authorize button for API keys | Sanctum docs in Scribe |
+
+### 16.2 Lifespan startup (instead of import-time side effects)
+
+Move `Base.metadata.create_all()` from module import into a **lifespan** context manager so tables are created when the app starts, not when Python imports the file:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from database import Base, engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Create database tables on application startup."""
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+app = FastAPI(
+    title="First FastAPI",
+    description="A simple API to learn FastAPI basics",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+```
+
+Tests mirror this with a session-scoped `create_tables` fixture in `tests/conftest.py`.
+
+### 16.3 Typed response schemas
+
+Add `ItemResponse` and `ItemStatsResponse` to `schemas.py` and use them as `response_model` on routes:
+
+```python
+class ItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    price: float
+    category: str | None
+```
+
+In routes, return validated responses instead of manual dicts:
+
+```python
+return ItemResponse.model_validate(row)
+```
+
+Remove any `item_to_dict()` helper — Pydantic handles the conversion.
+
+### 16.4 Input validation rules
+
+Add constraints to request schemas using Pydantic `Field`:
+
+```python
+from pydantic import Field
+
+class ItemCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    price: float = Field(gt=0)
+    category: str | None = Field(default=None, max_length=100)
+```
+
+Invalid payloads return **422 Unprocessable Entity** automatically (e.g. empty name, negative price).
+
+### 16.5 Pagination bounds
+
+Constrain query parameters on `GET /items`:
+
+```python
+from fastapi import Query
+
+@app.get("/items", response_model=list[ItemResponse])
+def list_items(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    ...
+```
+
+### 16.6 Secure API key auth + OpenAPI
+
+The current `auth.py` uses `APIKeyHeader` (Swagger **Authorize** button) and `secrets.compare_digest()` for timing-safe key comparison. See Step 13 for the full module.
+
+### 16.7 Docker Compose loads `.env`
+
+`docker-compose.yml` includes `env_file: .env` so `API_KEY` and `DATABASE_URL` are loaded automatically when running in Docker.
+
+### 16.8 Current `main.py` (full app)
+
+The repo's `main.py` reflects all of the above. Key patterns:
+
+- **Lifespan** creates tables on startup
+- **ItemResponse** / **ItemStatsResponse** on all item routes
+- **Query bounds** on list pagination
+- **Stats route** registered before `/items/{item_id}`
+- **DELETE** protected with `Depends(verify_api_key)`
+
+### 16.9 Try it
+
+1. Start the app: `docker compose up --build` or `uvicorn main:app --reload`.
+2. Open **http://localhost:8000/docs** — item schemas are fully typed; click **Authorize** to set `X-API-Key`.
+3. Try **POST /items** with `{"name": "", "price": -1}` — expect **422**.
+4. Try **GET /items?limit=101** — expect **422**.
+5. Run tests: `pytest tests/ -v` (24 tests including validation cases).
+
+---
+
+## 17. Next Steps for Learning FastAPI
+
+Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, authentication, and production patterns in place, you can extend the app further:
+
+1. **Centralized config** – Use `pydantic-settings` for typed `.env` loading (like Laravel's `config/`).
+2. **Full service layer** – Move all CRUD logic into `ItemService` (thin controllers).
+3. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
+4. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
+5. **Alembic** – Add schema migrations for the database instead of `create_all`.
+6. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
 
 The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) and match this style of app (async, type hints, automatic docs).
 
 ---
 
-## 17. Quick Reference
+## 18. Quick Reference
 
 | Goal | Command |
 |------|---------|
@@ -1380,4 +1523,4 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add an in-memory list, a test framework, and a CI/CD pipeline, and how to iterate on the code. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, and production best practices. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.

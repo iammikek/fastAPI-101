@@ -7,5 +7,7 @@ services:
       # Mount source for development (changes reflect after reload)
       - .:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1

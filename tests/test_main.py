@@ -103,6 +103,30 @@ def test_create_item_invalid_body():
     assert response.status_code == 422
 
 
+def test_create_item_negative_price():
+    """POST /items returns 422 when price is not positive."""
+    response = client.post("/items", json={"name": "Bad", "price": -1.0})
+    assert response.status_code == 422
+
+
+def test_create_item_empty_name():
+    """POST /items returns 422 when name is empty."""
+    response = client.post("/items", json={"name": "", "price": 1.0})
+    assert response.status_code == 422
+
+
+def test_list_items_limit_exceeds_max():
+    """GET /items returns 422 when limit exceeds maximum."""
+    response = client.get("/items?limit=101")
+    assert response.status_code == 422
+
+
+def test_list_items_negative_skip():
+    """GET /items returns 422 when skip is negative."""
+    response = client.get("/items?skip=-1")
+    assert response.status_code == 422
+
+
 def test_update_item_partial():
     """PATCH /items/{item_id} updates only provided fields."""
     create = client.post(

@@ -6,8 +6,14 @@ DATABASE_URL is set to in-memory SQLite in the project root conftest.py.
 
 import pytest
 
-from database import SessionLocal
+from database import Base, SessionLocal, engine
 from models import Item
+
+
+@pytest.fixture(scope="session", autouse=True)
+def create_tables():
+    """Create tables for tests (mirrors app lifespan startup)."""
+    Base.metadata.create_all(bind=engine)
 
 
 @pytest.fixture(autouse=True)

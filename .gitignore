@@ -16,3 +16,7 @@ test.db
 
 # Docker
 .docker/
+
+# Node (not used by this project)
+node_modules/
+yarn.lock
