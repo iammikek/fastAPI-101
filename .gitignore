@@ -20,3 +20,7 @@ test.db
 # Node (not used by this project)
 node_modules/
 yarn.lock
+
+# Test/coverage artifacts
+.coverage
+htmlcov/

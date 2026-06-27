@@ -10,16 +10,19 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from config import get_settings
-from database import Base, SessionLocal, engine
+from alembic import command
+from alembic.config import Config
+from app.config import get_settings
+from app.database import SessionLocal
+from app.models import Item
 from main import app
-from models import Item
 
 
 @pytest.fixture(scope="session", autouse=True)
-def create_tables():
-    """Create tables for tests (mirrors app lifespan startup)."""
-    Base.metadata.create_all(bind=engine)
+def run_migrations():
+    """Apply Alembic migrations (mirrors production database setup)."""
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
 
 
 @pytest.fixture(autouse=True)
@@ -48,12 +51,12 @@ def auth_headers():
 
 
 @pytest.fixture
-def create_item(client) -> Callable[..., dict[str, Any]]:
+def create_item(client, auth_headers) -> Callable[..., dict[str, Any]]:
     """Factory for creating items via the API (Laravel factory equivalent)."""
 
     def _create_item(**overrides: Any) -> dict[str, Any]:
         payload = {"name": "Widget", "price": 9.99, **overrides}
-        response = client.post("/items", json=payload)
+        response = client.post("/items", json=payload, headers=auth_headers)
         assert response.status_code == 201
         return response.json()
 

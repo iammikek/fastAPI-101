@@ -7,9 +7,9 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from exceptions import ItemNotFoundError
-from models import Item
-from schemas import ItemCreate, ItemUpdate
+from app.exceptions import ItemNotFoundError
+from app.models import Item
+from app.schemas import ItemCreate, ItemUpdate
 
 
 class ItemService:

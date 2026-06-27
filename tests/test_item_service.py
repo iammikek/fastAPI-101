@@ -4,9 +4,9 @@ from decimal import Decimal
 
 import pytest
 
-from exceptions import ItemNotFoundError
-from schemas import ItemCreate, ItemUpdate
-from services import ItemService
+from app.exceptions import ItemNotFoundError
+from app.schemas import ItemCreate, ItemUpdate
+from app.services import ItemService
 
 
 def test_get_by_id_returns_item(db, create_item):

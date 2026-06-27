@@ -19,6 +19,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 11. **Database schema changes** (adding fields) with notes on migrations (Step 15)
 12. **Production best practices** (typed responses, validation rules, lifespan startup, secure auth) (Step 16)
 13. **Mature app structure** (centralized config, full service layer, logging, exception handlers) (Step 17)
+14. **Production structure** (`app/` package, APIRouter, Alembic migrations, CORS, auth on writes) (Step 18)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -42,8 +43,9 @@ By the end, you can start the API with a single command and edit code while it r
 14. [Add a new field to the items table](#15-add-a-new-field-to-the-items-table)
 15. [Production best practices](#16-production-best-practices)
 16. [Mature app structure](#17-mature-app-structure)
-17. [Next Steps for Learning FastAPI](#18-next-steps-for-learning-fastapi)
-18. [Quick Reference](#19-quick-reference)
+17. [Production structure](#18-production-structure)
+18. [Next Steps for Learning FastAPI](#19-next-steps-for-learning-fastapi)
+19. [Quick Reference](#20-quick-reference)
 
 ---
 
@@ -63,7 +65,7 @@ pytest tests/ -v
 
 Then open:
 - **http://localhost:8000** – API
-- **http://localhost:8000/docs** – Interactive API docs (click **Authorize** to set `X-API-Key` for DELETE)
+- **http://localhost:8000/docs** – Interactive API docs (click **Authorize** to set `X-API-Key` for POST/PATCH/DELETE)
 
 **Note:** The app works with defaults (`API_KEY=dev-key-123`, `DATABASE_URL=sqlite:///./app.db`), but you can customize them in `.env`. See `.env.example` for available variables. Docker Compose loads `.env` automatically via `env_file`.
 
@@ -73,38 +75,35 @@ Then open:
 
 ```
 fastAPI-101/
-├── main.py              # FastAPI application (routes, middleware, handlers)
-├── config.py            # Typed settings via pydantic-settings (Step 17)
-├── exceptions.py        # Application exceptions (Step 17)
+├── main.py              # Uvicorn entry point (imports app from package)
+├── app/                 # Application package (Step 18)
+│   ├── main.py          # App factory, middleware, exception handlers
+│   ├── config.py        # Typed settings via pydantic-settings
+│   ├── database.py      # SQLAlchemy engine, session, get_db
+│   ├── models.py        # ORM models
+│   ├── schemas.py       # Pydantic request/response schemas
+│   ├── auth.py          # API key authentication
+│   ├── services.py      # Service layer (business logic)
+│   ├── exceptions.py    # Application exceptions
+│   └── routers/         # API route modules (Step 18)
+│       ├── health.py    # GET /, GET /health
+│       └── items.py     # /items CRUD + stats
+├── alembic/             # Database migrations (Step 18)
+├── alembic.ini
 ├── requirements.txt     # Production Python dependencies
-├── requirements-dev.txt # Dev/test/lint dependencies (Step 17)
-├── database.py          # SQLAlchemy engine, session, get_db (Step 10)
-├── models.py            # ORM models, e.g. Item (Step 10)
-├── schemas.py           # Pydantic request/response schemas (Steps 15–17)
-├── auth.py              # API key authentication (Steps 13, 16)
-├── services.py          # Service layer for business logic (Steps 14, 17)
-├── Dockerfile           # How to build the container image
-├── docker-compose.yml   # How to run the container (with options)
-├── .dockerignore        # Files to exclude from the Docker build
-├── .env.example         # Environment variables template
-├── conftest.py          # Root: set DATABASE_URL for tests (Step 11)
-├── pyproject.toml       # Ruff linting configuration (Step 12)
-├── README.md            # This file
-├── .github/
-│   └── workflows/
-│       └── ci.yml       # GitHub Actions CI pipeline (Step 12)
-└── tests/               # Test package (Step 11)
-    ├── __init__.py
-    ├── conftest.py           # Shared fixtures (client, auth_headers, create_item, db)
-    ├── test_app.py             # Root and health endpoints
-    ├── test_items_list.py      # GET /items
-    ├── test_items_create.py    # POST /items
-    ├── test_items_read.py      # GET /items/{id}
-    ├── test_items_update.py    # PATCH /items/{id}
-    ├── test_items_delete.py    # DELETE /items/{id} + auth
-    ├── test_items_validation.py # 422 validation errors
-    ├── test_items_stats.py     # GET /items/stats/summary
-    └── test_item_service.py    # Unit tests for ItemService
+├── requirements-dev.txt # Dev/test/lint dependencies
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── conftest.py          # Root: set DATABASE_URL for tests
+├── pyproject.toml
+├── README.md
+├── .github/workflows/ci.yml
+└── tests/
+    ├── conftest.py
+    ├── test_app.py
+    ├── test_items_*.py
+    └── test_item_service.py
 ```
 
 ---
@@ -1501,7 +1500,7 @@ The repo's `main.py` reflects all of the above. Key patterns:
 2. Open **http://localhost:8000/docs** — item schemas are fully typed; click **Authorize** to set `X-API-Key`.
 3. Try **POST /items** with `{"name": "", "price": -1}` — expect **422**.
 4. Try **GET /items?limit=101** — expect **422**.
-5. Run tests: `pytest tests/ -v` (30 tests: integration + service unit tests).
+5. Run tests: `pytest tests/ -v` (32 tests).
 
 ---
 
@@ -1579,27 +1578,79 @@ CI also runs `ruff format --check` and `pytest --cov` with an 80% coverage thres
 2. Install dev deps: `pip install -r requirements-dev.txt`
 3. Start the app: `uvicorn main:app --reload` — watch request logs in the terminal.
 4. Call **GET /health** — confirm `"database": "connected"`.
-5. Run tests with coverage: `pytest tests/ -v --cov=.`
+5. Run tests with coverage: `pytest tests/ -v --cov=app`
 
 **Note:** If you have an existing `app.db` from before Step 17, delete it (`rm app.db`) so the `price` column is recreated as `Numeric`.
 
 ---
 
-## 18. Next Steps for Learning FastAPI
+## 18. Production structure
 
-Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, authentication, production patterns, and mature app structure in place, you can extend the app further:
+This step reorganizes the project like a deployable FastAPI app (and familiar Laravel layout): code under an `app/` package, routes in modules, Alembic migrations, CORS, and auth on all write endpoints.
+
+### 18.1 `app/` package layout
+
+Application code lives under `app/` instead of the repo root. Uvicorn still starts via root `main.py`:
+
+```python
+from app.main import app
+```
+
+### 18.2 APIRouter modules
+
+Routes split into focused modules (like Laravel route files):
+
+| Module | Routes |
+|--------|--------|
+| `app/routers/health.py` | `GET /`, `GET /health` |
+| `app/routers/items.py` | `/items` CRUD + stats |
+
+Registered in `app/main.py` with `include_router()`.
+
+### 18.3 Alembic migrations
+
+Schema changes use **Alembic** instead of `create_all()` at startup:
+
+```bash
+alembic upgrade head          # apply migrations
+alembic revision -m "message" # create new migration (after model changes)
+```
+
+Docker and docker-compose run `alembic upgrade head` before starting uvicorn. Tests apply migrations in `tests/conftest.py`.
+
+### 18.4 Auth on all write endpoints
+
+POST, PATCH, and DELETE require `X-API-Key` (like Laravel `middleware('auth:sanctum')` on a route group). GET endpoints remain public.
+
+### 18.5 CORS
+
+`CORSMiddleware` reads allowed origins from `CORS_ORIGINS` in `.env` (comma-separated).
+
+### 18.6 Try it
+
+1. `cp .env.example .env`
+2. `alembic upgrade head` (or `docker compose up --build` — migrations run automatically)
+3. `uvicorn main:app --reload`
+4. In `/docs`, **Authorize** with your API key before POST/PATCH/DELETE
+5. `pytest tests/ -v` (32 tests)
+
+---
+
+## 19. Next Steps for Learning FastAPI
+
+Now that you have a production-style FastAPI layout in place, you can extend the app further:
 
 1. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
 2. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
-3. **Alembic** – Add schema migrations for the database instead of `create_all`.
-4. **APIRouter modules** – Split routes into `routers/items.py` (like Laravel route files).
-5. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
+3. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
+4. **PostgreSQL** – Switch `DATABASE_URL` to PostgreSQL for production parity.
+5. **Async SQLAlchemy** – Move to `async def` routes and `AsyncSession` for high concurrency.
 
 The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) and match this style of app (async, type hints, automatic docs).
 
 ---
 
-## 19. Quick Reference
+## 20. Quick Reference
 
 | Goal | Command |
 |------|---------|
@@ -1608,12 +1659,13 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 | Stop background app | `docker compose down` |
 | Rebuild after changing Dockerfile/requirements | `docker compose up --build` |
 | View logs | `docker compose logs -f` |
-| Run locally (no Docker) | `pip install -r requirements-dev.txt && uvicorn main:app --reload` |
-| Run tests | `pytest tests/ -v --cov=.` |
+| Run locally (no Docker) | `pip install -r requirements-dev.txt && alembic upgrade head && uvicorn main:app --reload` |
+| Run migrations | `alembic upgrade head` |
+| Run tests | `pytest tests/ -v --cov=app` |
 | Run tests in Docker | `docker compose run --rm api sh -c "pip install -r requirements-dev.txt && pytest tests/ -v"` |
 | Run linting locally | `ruff check . && ruff format --check .` |
 | View CI runs | GitHub → Actions tab |
 
 ---
 
-You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, production best practices, and mature app structure. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, production best practices, mature app structure, and production layout with migrations. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.

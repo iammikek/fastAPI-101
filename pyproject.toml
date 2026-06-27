@@ -7,13 +7,13 @@ select = ["E", "F", "I", "N", "W", "UP"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["auth", "config", "database", "exceptions", "main", "models", "schemas", "services"]
+known-first-party = ["app", "main"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["."]
+source = ["app"]
 omit = ["tests/*", ".venv/*"]
 
 [tool.coverage.report]

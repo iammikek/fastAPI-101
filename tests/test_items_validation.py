@@ -11,7 +11,7 @@ import pytest
         {"name": "", "price": 1.0},
     ],
 )
-def test_create_item_validation_errors(client, payload):
+def test_create_item_validation_errors(client, auth_headers, payload):
     """POST /items returns 422 for invalid payloads."""
-    response = client.post("/items", json=payload)
+    response = client.post("/items", json=payload, headers=auth_headers)
     assert response.status_code == 422

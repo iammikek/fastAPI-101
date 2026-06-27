@@ -4,7 +4,7 @@ SQLAlchemy ORM models.
 
 from sqlalchemy import Column, Integer, Numeric, String, Text
 
-from database import Base
+from app.database import Base
 
 
 class Item(Base):
