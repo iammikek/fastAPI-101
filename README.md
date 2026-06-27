@@ -20,6 +20,8 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 12. **Production best practices** (typed responses, validation rules, lifespan startup, secure auth) (Step 16)
 13. **Mature app structure** (centralized config, full service layer, logging, exception handlers) (Step 17)
 14. **Production structure** (`app/` package, APIRouter, Alembic migrations, CORS, auth on writes) (Step 18)
+15. **Categories, filtering, and relationships** (Category CRUD, item query filters, startup migrations) (Step 19)
+16. **Pagination metadata** on list endpoints (`{ items, total, skip, limit }`) (Step 20)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -44,23 +46,41 @@ By the end, you can start the API with a single command and edit code while it r
 15. [Production best practices](#16-production-best-practices)
 16. [Mature app structure](#17-mature-app-structure)
 17. [Production structure](#18-production-structure)
-18. [Next Steps for Learning FastAPI](#19-next-steps-for-learning-fastapi)
-19. [Quick Reference](#20-quick-reference)
+18. [Categories, filtering, and relationships](#19-categories-filtering-and-relationships)
+19. [Pagination metadata](#20-pagination-metadata)
+20. [Next Steps for Learning FastAPI](#21-next-steps-for-learning-fastapi)
+21. [Quick Reference](#22-quick-reference)
 
 ---
 
 ## Quick Start
 
+**Pick one:** Docker **or** local uvicorn — both use port 8000, so don't run them at the same time.
+
+### Option A: Docker (recommended)
+
 ```bash
-# Copy environment variables template (optional)
-cp .env.example .env
-
-# Start the app
+cp .env.example .env   # optional
 docker compose up --build
+```
 
-# Run tests locally (install dev dependencies first)
+### Option B: Local Python
+
+```bash
+cp .env.example .env   # optional
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-pytest tests/ -v
+uvicorn main:app --reload
+```
+
+Migrations run automatically on startup — you don't need `alembic upgrade head` first.
+
+### Tests
+
+```bash
+source .venv/bin/activate
+pytest tests/ -v --cov=app
 ```
 
 Then open:
@@ -337,13 +357,27 @@ Here you don't get the volume mount or `--reload`; code changes require a rebuil
 ### Without Docker (local Python)
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn main:app --reload
 ```
 
-Same app, same URLs. Useful if you want to debug or run without Docker.
+Same app, same URLs. Migrations run automatically when the app starts (see Step 19.4).
+
+**Restart the server:** press **Ctrl+C** in the terminal, then run `uvicorn main:app --reload` again. With `--reload`, code changes usually reload on their own; restart manually after editing `.env` or if the process gets stuck.
+
+**`zsh: command not found: uvicorn`** — activate the venv first (`source .venv/bin/activate`). Uvicorn is installed in `.venv`, not globally.
+
+**`Address already in use` (port 8000)** — something else is already bound to that port. Common causes:
+
+| Cause | Fix |
+|-------|-----|
+| Docker still running | `docker compose down` |
+| Old uvicorn still running | **Ctrl+C** in that terminal, or `lsof -i :8000` then `kill <PID>` |
+| Want both Docker and local | Run local on another port: `uvicorn main:app --reload --port 8001` |
+
+Don't run `docker compose up` and local `uvicorn` at the same time — they both default to port 8000.
 
 ---
 
@@ -1604,6 +1638,7 @@ Routes split into focused modules (like Laravel route files):
 |--------|--------|
 | `app/routers/health.py` | `GET /`, `GET /health` |
 | `app/routers/items.py` | `/items` CRUD + stats |
+| `app/routers/categories.py` | `/categories` CRUD |
 
 Registered in `app/main.py` with `include_router()`.
 
@@ -1632,16 +1667,131 @@ POST, PATCH, and DELETE require `X-API-Key` (like Laravel `middleware('auth:sanc
 2. `alembic upgrade head` (or `docker compose up --build` — migrations run automatically)
 3. `uvicorn main:app --reload`
 4. In `/docs`, **Authorize** with your API key before POST/PATCH/DELETE
-5. `pytest tests/ -v` (32 tests)
+5. `pytest tests/ -v` (32 tests at this step)
 
 ---
 
-## 19. Next Steps for Learning FastAPI
+## 19. Categories, filtering, and relationships
 
-Now that you have a production-style FastAPI layout in place, you can extend the app further:
+This step adds a second resource (`Category`), replaces the string `category` field on items with a foreign key, adds query filters on `GET /items`, runs Alembic migrations on local startup, and splits category tests by endpoint (matching the items test layout).
+
+### 19.1 Category model and relationship
+
+Categories live in their own table. Items reference them via `category_id` (Laravel `belongsTo` / `hasMany`):
+
+| Laravel | FastAPI / SQLAlchemy |
+|---------|----------------------|
+| `Category hasMany Item` | `Category.items` relationship |
+| `Item belongsTo Category` | `Item.category_id` FK + nested `category` in responses |
+
+Migration `002_add_categories_table.py` creates `categories`, adds `category_id` to `items`, and drops the old string `category` column.
+
+### 19.2 Category CRUD routes
+
+New router at `app/routers/categories.py`:
+
+| Method | Path | Auth |
+|--------|------|------|
+| GET | `/categories` | Public |
+| GET | `/categories/{id}` | Public |
+| POST | `/categories` | API key |
+| PATCH | `/categories/{id}` | API key |
+| DELETE | `/categories/{id}` | API key |
+
+Deleting a category that still has items returns **409** (`CATEGORY_IN_USE`). Duplicate names return **409** (`CATEGORY_NAME_EXISTS`).
+
+Items now use `category_id` in create/update payloads. Responses include nested category data:
+
+```json
+{
+  "id": 1,
+  "name": "Hammer",
+  "category_id": 2,
+  "category": { "id": 2, "name": "Tools", "description": null }
+}
+```
+
+### 19.3 Item query filters
+
+`GET /items` accepts optional filters (Laravel query scopes):
+
+| Param | Example | Behavior |
+|-------|---------|----------|
+| `min_price` | `?min_price=10` | Price ≥ 10 |
+| `max_price` | `?max_price=25` | Price ≤ 25 |
+| `category_id` | `?category_id=2` | Items in that category |
+| `name_contains` | `?name_contains=widget` | Case-insensitive name match |
+
+Filters combine: `GET /items?category_id=2&min_price=10&max_price=25`
+
+Validation lives in `ItemListFilters` (Pydantic); the service layer applies them to the SQLAlchemy query.
+
+### 19.4 Migrations on local startup
+
+Docker Compose already runs `alembic upgrade head` before uvicorn. Local `uvicorn main:app --reload` now does the same in the app lifespan hook — no more empty-database 500 errors when you forget to migrate.
+
+### 19.5 Tests split by endpoint
+
+Category tests mirror items (one file per route concern):
+
+```
+tests/test_categories_list.py
+tests/test_categories_create.py
+tests/test_categories_update.py
+tests/test_categories_delete.py
+```
+
+### 19.6 Try it
+
+1. Activate the venv: `source .venv/bin/activate`
+2. Start the app: `uvicorn main:app --reload` (migrations run automatically)
+3. In `/docs`, **Authorize** with your API key
+4. `POST /categories` → `{ "name": "Tools" }`
+5. `POST /items` → `{ "name": "Hammer", "price": 10.0, "category_id": 1 }`
+6. `GET /items?category_id=1&min_price=5`
+7. Run tests: `pytest tests/ -v` (50 tests)
+
+**Note:** If you have an old `app.db` from before Step 19, delete it (`rm app.db`) and restart — the schema changed from string `category` to `category_id`.
+
+---
+
+## 20. Pagination metadata
+
+List endpoints return pagination metadata alongside the data (Laravel `paginate()` equivalent):
+
+```json
+{
+  "items": [ ... ],
+  "total": 42,
+  "skip": 0,
+  "limit": 10
+}
+```
+
+- **`total`** – total rows matching the query (before `skip`/`limit`)
+- **`skip`** / **`limit`** – echo the request params so clients know where they are
+
+Applies to `GET /items` (with filters) and `GET /categories`.
+
+### 20.1 Paginated response schema
+
+`ItemListResponse` and `CategoryListResponse` wrap the item/category list with metadata. The service layer returns `(rows, total)`; the router builds the response object.
+
+### 20.2 Try it
+
+1. Create several items via `POST /items`
+2. `GET /items?skip=0&limit=2` — response includes `"total": N` for the full count
+3. `GET /items?category_id=1&limit=5` — `total` reflects filtered count, not just the page size
+4. Run tests: `pytest tests/ -v` (50 tests)
+
+---
+
+## 21. Next Steps for Learning FastAPI
+
+Now that you have filtering, categories, and pagination metadata in place, you can extend the app further:
 
 1. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
-2. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
+2. **`test_category_service.py`** – Unit tests for `CategoryService` (like `test_item_service.py`).
 3. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
 4. **PostgreSQL** – Switch `DATABASE_URL` to PostgreSQL for production parity.
 5. **Async SQLAlchemy** – Move to `async def` routes and `AsyncSession` for high concurrency.
@@ -1650,17 +1800,20 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-## 20. Quick Reference
+## 22. Quick Reference
 
 | Goal | Command |
 |------|---------|
-| Start app (with reload) | `docker compose up --build` |
+| Activate virtualenv | `source .venv/bin/activate` |
+| Start app (Docker) | `docker compose up --build` |
+| Start app (local) | `source .venv/bin/activate && uvicorn main:app --reload` |
+| Restart local server | **Ctrl+C**, then `uvicorn main:app --reload` |
+| Stop Docker | `docker compose down` |
+| Port 8000 in use | Stop the other process (see [Without Docker](#without-docker-local-python)) |
 | Start in background | `docker compose up --build -d` |
-| Stop background app | `docker compose down` |
 | Rebuild after changing Dockerfile/requirements | `docker compose up --build` |
 | View logs | `docker compose logs -f` |
-| Run locally (no Docker) | `pip install -r requirements-dev.txt && alembic upgrade head && uvicorn main:app --reload` |
-| Run migrations | `alembic upgrade head` |
+| Run migrations manually | `alembic upgrade head` (optional — app runs this on startup) |
 | Run tests | `pytest tests/ -v --cov=app` |
 | Run tests in Docker | `docker compose run --rm api sh -c "pip install -r requirements-dev.txt && pytest tests/ -v"` |
 | Run linting locally | `ruff check . && ruff format --check .` |
@@ -1668,4 +1821,4 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 
 ---
 
-You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, production best practices, mature app structure, and production layout with migrations. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, production best practices, mature app structure, production layout with migrations, categories and filtering, and pagination metadata. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.

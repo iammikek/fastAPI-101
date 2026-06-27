@@ -4,22 +4,25 @@ import pytest
 
 
 def test_list_items_empty(client):
-    """GET /items returns empty list when no items exist."""
+    """GET /items returns empty paginated result when no items exist."""
     response = client.get("/items")
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json() == {"items": [], "total": 0, "skip": 0, "limit": 10}
 
 
 def test_list_items_with_pagination(client, create_item):
-    """GET /items?skip=0&limit=2 returns only the requested slice."""
+    """GET /items?skip=0&limit=2 returns only the requested slice with total count."""
     for name, price in [("A", 1.0), ("B", 2.0), ("C", 3.0)]:
         create_item(name=name, price=price, description=None)
     response = client.get("/items?skip=1&limit=2")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
-    assert data[0]["name"] == "B"
-    assert data[1]["name"] == "C"
+    assert data["total"] == 3
+    assert data["skip"] == 1
+    assert data["limit"] == 2
+    assert len(data["items"]) == 2
+    assert data["items"][0]["name"] == "B"
+    assert data["items"][1]["name"] == "C"
 
 
 def test_list_items_filter_by_min_price(client, create_item):
@@ -29,7 +32,9 @@ def test_list_items_filter_by_min_price(client, create_item):
     create_item(name="Premium", price=25.0)
     response = client.get("/items?min_price=10")
     assert response.status_code == 200
-    names = {item["name"] for item in response.json()}
+    data = response.json()
+    assert data["total"] == 2
+    names = {item["name"] for item in data["items"]}
     assert names == {"Mid", "Premium"}
 
 
@@ -40,7 +45,9 @@ def test_list_items_filter_by_max_price(client, create_item):
     create_item(name="Premium", price=25.0)
     response = client.get("/items?max_price=10")
     assert response.status_code == 200
-    names = {item["name"] for item in response.json()}
+    data = response.json()
+    assert data["total"] == 2
+    names = {item["name"] for item in data["items"]}
     assert names == {"Cheap", "Mid"}
 
 
@@ -53,7 +60,9 @@ def test_list_items_filter_by_category(client, create_category, create_item):
     create_item(name="Wrench", price=15.0, category_id=tools["id"])
     response = client.get(f"/items?category_id={tools['id']}")
     assert response.status_code == 200
-    names = {item["name"] for item in response.json()}
+    data = response.json()
+    assert data["total"] == 2
+    names = {item["name"] for item in data["items"]}
     assert names == {"Hammer", "Wrench"}
 
 
@@ -64,7 +73,9 @@ def test_list_items_filter_by_name_contains(client, create_item):
     create_item(name="green widget", price=15.0)
     response = client.get("/items?name_contains=widget")
     assert response.status_code == 200
-    names = {item["name"] for item in response.json()}
+    data = response.json()
+    assert data["total"] == 2
+    names = {item["name"] for item in data["items"]}
     assert names == {"Blue Widget", "green widget"}
 
 
@@ -79,7 +90,9 @@ def test_list_items_combined_filters(client, create_category, create_item):
         f"/items?category_id={tools['id']}&min_price=10&max_price=25"
     )
     assert response.status_code == 200
-    assert response.json()[0]["name"] == "Pro Tool"
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["name"] == "Pro Tool"
 
 
 @pytest.mark.parametrize("query", ["limit=101", "skip=-1", "min_price=-1"])

@@ -74,5 +74,6 @@ def test_list_items_filters_by_category(db):
     ItemService.create(db, ItemCreate(name="A", price=Decimal("10.00"), category_id=tools.id))
     ItemService.create(db, ItemCreate(name="B", price=Decimal("12.00")))
     filters = ItemListFilters(category_id=tools.id)
-    items = ItemService.list_items(db, skip=0, limit=10, filters=filters)
+    items, total = ItemService.list_items(db, skip=0, limit=10, filters=filters)
+    assert total == 1
     assert [item.name for item in items] == ["A"]

@@ -27,9 +27,12 @@ class CategoryService:
     """Service class for category business logic."""
 
     @staticmethod
-    def list_categories(db: Session, skip: int, limit: int) -> list[Category]:
-        """Return a paginated list of categories."""
-        return db.query(Category).offset(skip).limit(limit).all()
+    def list_categories(db: Session, skip: int, limit: int) -> tuple[list[Category], int]:
+        """Return a paginated list of categories and total count."""
+        query = db.query(Category)
+        total = query.count()
+        rows = query.offset(skip).limit(limit).all()
+        return rows, total
 
     @staticmethod
     def get_by_id(db: Session, category_id: int) -> Category:
@@ -92,15 +95,9 @@ class ItemService:
             CategoryService.get_by_id(db, category_id)
 
     @staticmethod
-    def list_items(
-        db: Session,
-        skip: int,
-        limit: int,
-        filters: ItemListFilters | None = None,
-    ) -> list[Item]:
-        """Return a paginated, optionally filtered list of items."""
-        query = db.query(Item).options(joinedload(Item.category))
-
+    def _items_query(db: Session, filters: ItemListFilters | None = None):
+        """Build a filtered item query (without pagination)."""
+        query = db.query(Item)
         if filters is not None:
             if filters.min_price is not None:
                 query = query.filter(Item.price >= filters.min_price)
@@ -110,8 +107,20 @@ class ItemService:
                 query = query.filter(Item.category_id == filters.category_id)
             if filters.name_contains is not None:
                 query = query.filter(Item.name.ilike(f"%{filters.name_contains}%"))
+        return query
 
-        return query.offset(skip).limit(limit).all()
+    @staticmethod
+    def list_items(
+        db: Session,
+        skip: int,
+        limit: int,
+        filters: ItemListFilters | None = None,
+    ) -> tuple[list[Item], int]:
+        """Return a paginated, optionally filtered list of items and total count."""
+        query = ItemService._items_query(db, filters)
+        total = query.count()
+        rows = query.options(joinedload(Item.category)).offset(skip).limit(limit).all()
+        return rows, total
 
     @staticmethod
     def get_by_id(db: Session, item_id: int) -> Item:

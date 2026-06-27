@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import verify_api_key
 from app.database import get_db
-from app.schemas import CategoryCreate, CategoryResponse, CategoryUpdate
+from app.schemas import CategoryCreate, CategoryListResponse, CategoryResponse, CategoryUpdate
 from app.services import CategoryService
 
 logger = logging.getLogger("app")
@@ -15,15 +15,20 @@ logger = logging.getLogger("app")
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
-@router.get("", response_model=list[CategoryResponse])
+@router.get("", response_model=CategoryListResponse)
 def list_categories(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """List categories with pagination."""
-    rows = CategoryService.list_categories(db, skip=skip, limit=limit)
-    return [CategoryResponse.model_validate(row) for row in rows]
+    """List categories with pagination metadata."""
+    rows, total = CategoryService.list_categories(db, skip=skip, limit=limit)
+    return CategoryListResponse(
+        items=[CategoryResponse.model_validate(row) for row in rows],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/{category_id}", response_model=CategoryResponse)

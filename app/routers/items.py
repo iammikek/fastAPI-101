@@ -11,6 +11,7 @@ from app.database import get_db
 from app.schemas import (
     ItemCreate,
     ItemListFilters,
+    ItemListResponse,
     ItemResponse,
     ItemStatsResponse,
     ItemUpdate,
@@ -22,7 +23,7 @@ logger = logging.getLogger("app")
 router = APIRouter(prefix="/items", tags=["items"])
 
 
-@router.get("", response_model=list[ItemResponse])
+@router.get("", response_model=ItemListResponse)
 def list_items(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -32,15 +33,20 @@ def list_items(
     name_contains: str | None = Query(None, min_length=1, max_length=255),
     db: Session = Depends(get_db),
 ):
-    """List items with pagination and optional query filters."""
+    """List items with pagination metadata and optional query filters."""
     filters = ItemListFilters(
         min_price=min_price,
         max_price=max_price,
         category_id=category_id,
         name_contains=name_contains,
     )
-    rows = ItemService.list_items(db, skip=skip, limit=limit, filters=filters)
-    return [ItemResponse.model_validate(row) for row in rows]
+    rows, total = ItemService.list_items(db, skip=skip, limit=limit, filters=filters)
+    return ItemListResponse(
+        items=[ItemResponse.model_validate(row) for row in rows],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/stats/summary", response_model=ItemStatsResponse)

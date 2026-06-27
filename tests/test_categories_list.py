@@ -2,10 +2,25 @@
 
 
 def test_list_categories_empty(client):
-    """GET /categories returns empty list when no categories exist."""
+    """GET /categories returns empty paginated result when no categories exist."""
     response = client.get("/categories")
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json() == {"items": [], "total": 0, "skip": 0, "limit": 10}
+
+
+def test_list_categories_with_pagination(client, create_category):
+    """GET /categories?skip=0&limit=2 returns pagination metadata."""
+    for name in ["A", "B", "C"]:
+        create_category(name=name)
+    response = client.get("/categories?skip=1&limit=2")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert data["skip"] == 1
+    assert data["limit"] == 2
+    assert len(data["items"]) == 2
+    assert data["items"][0]["name"] == "B"
+    assert data["items"][1]["name"] == "C"
 
 
 def test_get_category(client, create_category):

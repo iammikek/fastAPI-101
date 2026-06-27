@@ -86,3 +86,21 @@ class ItemListFilters(BaseModel):
     max_price: Decimal | None = Field(default=None, gt=0)
     category_id: int | None = Field(default=None, ge=1)
     name_contains: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class ItemListResponse(BaseModel):
+    """Paginated list of items (Laravel paginate() equivalent)."""
+
+    items: list[ItemResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class CategoryListResponse(BaseModel):
+    """Paginated list of categories."""
+
+    items: list[CategoryResponse]
+    total: int
+    skip: int
+    limit: int
