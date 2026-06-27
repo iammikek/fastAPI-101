@@ -86,9 +86,7 @@ def test_list_items_combined_filters(client, create_category, create_item):
     create_item(name="Budget Tool", price=8.0, category_id=tools["id"])
     create_item(name="Pro Tool", price=20.0, category_id=tools["id"])
     create_item(name="Budget Book", price=8.0, category_id=books["id"])
-    response = client.get(
-        f"/items?category_id={tools['id']}&min_price=10&max_price=25"
-    )
+    response = client.get(f"/items?category_id={tools['id']}&min_price=10&max_price=25")
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 1

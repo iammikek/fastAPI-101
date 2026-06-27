@@ -125,12 +125,7 @@ class ItemService:
     @staticmethod
     def get_by_id(db: Session, item_id: int) -> Item:
         """Return an item by id or raise ItemNotFoundError."""
-        row = (
-            db.query(Item)
-            .options(joinedload(Item.category))
-            .filter(Item.id == item_id)
-            .first()
-        )
+        row = db.query(Item).options(joinedload(Item.category)).filter(Item.id == item_id).first()
         if row is None:
             raise ItemNotFoundError(item_id)
         return row

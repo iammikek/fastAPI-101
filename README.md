@@ -1604,7 +1604,14 @@ Returns **503** if the database is unavailable.
 
 Docker installs only `requirements.txt`. Local development and CI use `requirements-dev.txt`.
 
-CI also runs `ruff format --check` and `pytest --cov` with an 80% coverage threshold.
+CI runs as two parallel jobs in `.github/workflows/ci.yml`:
+
+| Job | Checks |
+|-----|--------|
+| **Lint** | `ruff check .`, `ruff format --check .` |
+| **Test** | `pytest tests/ -v --cov=app` (80% coverage threshold) |
+
+Shared setup (Python, pip cache, install) lives in `.github/actions/setup/`.
 
 ### 17.8 Try it
 
@@ -1817,7 +1824,7 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 | Run tests | `pytest tests/ -v --cov=app` |
 | Run tests in Docker | `docker compose run --rm api sh -c "pip install -r requirements-dev.txt && pytest tests/ -v"` |
 | Run linting locally | `ruff check . && ruff format --check .` |
-| View CI runs | GitHub → Actions tab |
+| View CI runs | GitHub → Actions tab (parallel **Lint** and **Test** jobs) |
 
 ---
 
