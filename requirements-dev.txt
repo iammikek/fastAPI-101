@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Testing (TestClient uses httpx)
+pytest==8.3.4
+pytest-cov==6.0.0
+httpx==0.28.1
+
+# Linting and formatting
+ruff==0.6.9

@@ -18,6 +18,7 @@ A step-by-step guide to building a minimal FastAPI app with Docker, SQLite, and 
 10. **Service layer** (controller-service pattern) separating business logic from routes (Step 14)
 11. **Database schema changes** (adding fields) with notes on migrations (Step 15)
 12. **Production best practices** (typed responses, validation rules, lifespan startup, secure auth) (Step 16)
+13. **Mature app structure** (centralized config, full service layer, logging, exception handlers) (Step 17)
 
 By the end, you can start the API with a single command and edit code while it reloads automatically.
 
@@ -40,8 +41,9 @@ By the end, you can start the API with a single command and edit code while it r
 13. [Add a service layer (controller-service pattern)](#14-add-a-service-layer-controller-service-pattern)
 14. [Add a new field to the items table](#15-add-a-new-field-to-the-items-table)
 15. [Production best practices](#16-production-best-practices)
-16. [Next Steps for Learning FastAPI](#17-next-steps-for-learning-fastapi)
-17. [Quick Reference](#18-quick-reference)
+16. [Mature app structure](#17-mature-app-structure)
+17. [Next Steps for Learning FastAPI](#18-next-steps-for-learning-fastapi)
+18. [Quick Reference](#19-quick-reference)
 
 ---
 
@@ -54,8 +56,9 @@ cp .env.example .env
 # Start the app
 docker compose up --build
 
-# Run tests
-docker compose run --rm api pytest tests/ -v
+# Run tests locally (install dev dependencies first)
+pip install -r requirements-dev.txt
+pytest tests/ -v
 ```
 
 Then open:
@@ -70,13 +73,16 @@ Then open:
 
 ```
 fastAPI-101/
-├── main.py              # FastAPI application (routes, lifespan startup)
-├── requirements.txt     # Python dependencies
+├── main.py              # FastAPI application (routes, middleware, handlers)
+├── config.py            # Typed settings via pydantic-settings (Step 17)
+├── exceptions.py        # Application exceptions (Step 17)
+├── requirements.txt     # Production Python dependencies
+├── requirements-dev.txt # Dev/test/lint dependencies (Step 17)
 ├── database.py          # SQLAlchemy engine, session, get_db (Step 10)
 ├── models.py            # ORM models, e.g. Item (Step 10)
-├── schemas.py           # Pydantic request/response schemas (Steps 15–16)
+├── schemas.py           # Pydantic request/response schemas (Steps 15–17)
 ├── auth.py              # API key authentication (Steps 13, 16)
-├── services.py          # Service layer for business logic (Step 14)
+├── services.py          # Service layer for business logic (Steps 14, 17)
 ├── Dockerfile           # How to build the container image
 ├── docker-compose.yml   # How to run the container (with options)
 ├── .dockerignore        # Files to exclude from the Docker build
@@ -89,8 +95,16 @@ fastAPI-101/
 │       └── ci.yml       # GitHub Actions CI pipeline (Step 12)
 └── tests/               # Test package (Step 11)
     ├── __init__.py
-    ├── conftest.py      # Pytest fixtures (create_tables, reset_db)
-    └── test_main.py     # API tests with TestClient
+    ├── conftest.py           # Shared fixtures (client, auth_headers, create_item, db)
+    ├── test_app.py             # Root and health endpoints
+    ├── test_items_list.py      # GET /items
+    ├── test_items_create.py    # POST /items
+    ├── test_items_read.py      # GET /items/{id}
+    ├── test_items_update.py    # PATCH /items/{id}
+    ├── test_items_delete.py    # DELETE /items/{id} + auth
+    ├── test_items_validation.py # 422 validation errors
+    ├── test_items_stats.py     # GET /items/stats/summary
+    └── test_item_service.py    # Unit tests for ItemService
 ```
 
 ---
@@ -1487,26 +1501,105 @@ The repo's `main.py` reflects all of the above. Key patterns:
 2. Open **http://localhost:8000/docs** — item schemas are fully typed; click **Authorize** to set `X-API-Key`.
 3. Try **POST /items** with `{"name": "", "price": -1}` — expect **422**.
 4. Try **GET /items?limit=101** — expect **422**.
-5. Run tests: `pytest tests/ -v` (24 tests including validation cases).
+5. Run tests: `pytest tests/ -v` (30 tests: integration + service unit tests).
 
 ---
 
-## 17. Next Steps for Learning FastAPI
+## 17. Mature app structure
 
-Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, authentication, and production patterns in place, you can extend the app further:
+This step adds patterns common in production FastAPI apps (and familiar from Laravel): centralized config, thin controllers, structured logging, and consistent error handling.
 
-1. **Centralized config** – Use `pydantic-settings` for typed `.env` loading (like Laravel's `config/`).
-2. **Full service layer** – Move all CRUD logic into `ItemService` (thin controllers).
-3. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
-4. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
-5. **Alembic** – Add schema migrations for the database instead of `create_all`.
-6. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
+### 17.1 Centralized config (`config.py`)
+
+Use **pydantic-settings** to load typed configuration from `.env`:
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+    database_url: str = "sqlite:///./app.db"
+    api_key: str = "dev-key-123"
+    log_level: str = "INFO"
+```
+
+`database.py` and `auth.py` read from `get_settings()` instead of scattered `os.getenv()` calls.
+
+### 17.2 Full service layer
+
+All item CRUD logic lives in `ItemService`. Routes in `main.py` are thin controllers:
+
+```python
+@app.post("/items", response_model=ItemResponse, status_code=201)
+def create_item(item: ItemCreate, db: Session = Depends(get_db)):
+    row = ItemService.create(db, item)
+    return ItemResponse.model_validate(row)
+```
+
+### 17.3 Exception handlers
+
+`exceptions.py` defines `ItemNotFoundError`. Global handlers in `main.py` return consistent JSON:
+
+```json
+{"detail": "Item not found", "code": "ITEM_NOT_FOUND"}
+```
+
+### 17.4 Request logging
+
+An HTTP middleware logs method, path, status code, and duration. Log level is configurable via `LOG_LEVEL` in `.env`.
+
+### 17.5 Health check with database ping
+
+`GET /health` verifies database connectivity and returns:
+
+```json
+{"status": "ok", "database": "connected"}
+```
+
+Returns **503** if the database is unavailable.
+
+### 17.6 Decimal for money
+
+`price` uses `Numeric(10, 2)` in SQLAlchemy and `Decimal` in Pydantic schemas to avoid floating-point rounding issues.
+
+### 17.7 Split dev and production dependencies
+
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Production runtime (FastAPI, SQLAlchemy, pydantic-settings) |
+| `requirements-dev.txt` | Dev tools (pytest, ruff, pytest-cov) |
+
+Docker installs only `requirements.txt`. Local development and CI use `requirements-dev.txt`.
+
+CI also runs `ruff format --check` and `pytest --cov` with an 80% coverage threshold.
+
+### 17.8 Try it
+
+1. Copy `.env.example` to `.env` and optionally set `LOG_LEVEL=DEBUG`.
+2. Install dev deps: `pip install -r requirements-dev.txt`
+3. Start the app: `uvicorn main:app --reload` — watch request logs in the terminal.
+4. Call **GET /health** — confirm `"database": "connected"`.
+5. Run tests with coverage: `pytest tests/ -v --cov=.`
+
+**Note:** If you have an existing `app.db` from before Step 17, delete it (`rm app.db`) so the `price` column is recreated as `Numeric`.
+
+---
+
+## 18. Next Steps for Learning FastAPI
+
+Now that you have path params, query params, request bodies, a persistent DB, tests, CI/CD, authentication, production patterns, and mature app structure in place, you can extend the app further:
+
+1. **JWT authentication** – Replace static API key with JWT tokens for user-based auth.
+2. **Filtering** – Add query params like `min_price` or `name_contains` in `list_items`.
+3. **Alembic** – Add schema migrations for the database instead of `create_all`.
+4. **APIRouter modules** – Split routes into `routers/items.py` (like Laravel route files).
+5. **Rate limiting** – Limit requests per IP or API key to prevent abuse.
 
 The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) and match this style of app (async, type hints, automatic docs).
 
 ---
 
-## 18. Quick Reference
+## 19. Quick Reference
 
 | Goal | Command |
 |------|---------|
@@ -1515,12 +1608,12 @@ The official FastAPI docs are at [fastapi.tiangolo.com](https://fastapi.tiangolo
 | Stop background app | `docker compose down` |
 | Rebuild after changing Dockerfile/requirements | `docker compose up --build` |
 | View logs | `docker compose logs -f` |
-| Run locally (no Docker) | `uvicorn main:app --reload` |
-| Run tests | `pytest tests/ -v` |
-| Run tests in Docker | `docker compose run --rm api pytest tests/ -v` |
-| Run linting locally | `ruff check .` |
+| Run locally (no Docker) | `pip install -r requirements-dev.txt && uvicorn main:app --reload` |
+| Run tests | `pytest tests/ -v --cov=.` |
+| Run tests in Docker | `docker compose run --rm api sh -c "pip install -r requirements-dev.txt && pytest tests/ -v"` |
+| Run linting locally | `ruff check . && ruff format --check .` |
 | View CI runs | GitHub → Actions tab |
 
 ---
 
-You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, and production best practices. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.
+You've now seen how a minimal FastAPI app is structured, how dependencies are declared, how Docker and Docker Compose run it, how to add a persistent database, tests, CI/CD, authentication, production best practices, and mature app structure. Use this as a reference while you work through the FastAPI docs and add more endpoints and features.

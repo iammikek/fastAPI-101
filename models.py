@@ -1,7 +1,8 @@
 """
 SQLAlchemy ORM models.
 """
-from sqlalchemy import Column, Float, Integer, String, Text
+
+from sqlalchemy import Column, Integer, Numeric, String, Text
 
 from database import Base
 
@@ -14,5 +15,5 @@ class Item(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    price = Column(Float, nullable=False)
+    price = Column(Numeric(10, 2), nullable=False)
     category = Column(String(100), nullable=True)
