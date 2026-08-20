@@ -12,4 +12,7 @@ def test_health(client):
     """GET /health returns 200 and confirms database connectivity."""
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "connected"}
+    assert response.json() == {
+    "status": "ok",
+    "database": "connected",
+    "version": "1.0.0"}

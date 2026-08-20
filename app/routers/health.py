@@ -23,4 +23,9 @@ def health(db: Session = Depends(get_db)):
         ItemService.check_database(db)
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
-    return {"status": "ok", "database": "connected"}
+    return {
+    "status": "ok",
+    "database": "connected",
+    "version": "1.0.0"}
+
+

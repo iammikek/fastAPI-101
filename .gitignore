@@ -24,3 +24,5 @@ yarn.lock
 # Test/coverage artifacts
 .coverage
 htmlcov/
+
+.vscode/
